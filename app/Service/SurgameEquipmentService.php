@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Service;
 
 use App\Models\CharacterDeploySlot;
@@ -47,10 +48,11 @@ class SurgameEquipmentService
             });
         } catch (\Throwable $e) {
             Log::error('角色給予裝備 失敗', [
-                'uid'     => $uid,
+                'uid' => $uid,
                 'item_id' => $itemId,
-                'error'   => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
+
             return null;
         }
     }
@@ -65,7 +67,6 @@ class SurgameEquipmentService
                 if (! $this->unequipAll($uid, $slotId)) {
                     throw new \RuntimeException('脫裝失敗');
                 }
-
                 // 2) 拿最佳裝備
                 $bestEquipments = $this->getBestEquipments($uid);
 
@@ -88,6 +89,7 @@ class SurgameEquipmentService
             \Log::error('autoEquip rollback', [
                 'uid' => $uid, 'slot' => $slotId, 'err' => $e->getMessage(),
             ]);
+
             return false;
         }
     }
@@ -102,8 +104,8 @@ class SurgameEquipmentService
         }
         // 找舊裝備
         $currentEquipment = UserEquipmentSession::where([
-            'uid'      => $uid,
-            'slot_id'  => $slotId,
+            'uid' => $uid,
+            'slot_id' => $slotId,
             'position' => $position,
         ])->first();
 
@@ -117,25 +119,25 @@ class SurgameEquipmentService
                 // 舊裝備解除綁定
                 if ($currentEquipment) {
                     $currentEquipment->update([
-                        'slot_id'  => null,
+                        'slot_id' => null,
                         'position' => null,
-                        'is_used'  => 0,
+                        'is_used' => 0,
                     ]);
                 }
 
                 // 新裝備綁定
                 $newEquipment->update([
-                    'slot_id'  => $slotId,
+                    'slot_id' => $slotId,
                     'position' => $position,
-                    'is_used'  => 1,
+                    'is_used' => 1,
                 ]);
             });
         } else {
             // 直接綁定
             $newEquipment->update([
-                'slot_id'  => $slotId,
+                'slot_id' => $slotId,
                 'position' => $position,
-                'is_used'  => 1,
+                'is_used' => 1,
             ]);
         }
 
@@ -146,7 +148,7 @@ class SurgameEquipmentService
     public function getUserEquipment($uid): array
     {
         $currentEquipment = UserEquipmentSession::where('uid', $uid)
-            ->with(['attributes', 'baseAttributes'])
+            ->with(['attributes', 'baseAttributes','item'])
             ->get()
             ->map(function ($equip) use ($uid) {
                 return $this->formatterUserEquipment($equip->toArray(), $uid);
@@ -168,6 +170,7 @@ class SurgameEquipmentService
         $currentEquipments = $equipmentQuery->get()->map(function ($equip) use ($uid) {
             return $this->formatterUserEquipment($equip->toArray(), $uid);
         })->toArray();
+
         return $currentEquipments;
     }
 
@@ -197,9 +200,9 @@ class SurgameEquipmentService
         // 裝備與對應的品質
         $item = GddbItems::with(['equipment.quality'])
             ->where([
-                'region'   => 'Surgame',
+                'region' => 'Surgame',
                 'category' => 'Equipment',
-                'item_id'  => $itemId,
+                'item_id' => $itemId,
             ])->first();
 
         if (! $item || ! $item->equipment || ! $item->equipment->quality) {
@@ -222,7 +225,7 @@ class SurgameEquipmentService
                     [$min, $max] = $arr;
                 } else {
                     // 手動拆字串
-                    $raw   = trim($raw, "[] \t\n\r\0\x0B");
+                    $raw = trim($raw, "[] \t\n\r\0\x0B");
                     $parts = array_map('trim', explode(',', $raw));
                     if (count($parts) === 2) {
                         [$min, $max] = $parts;
@@ -233,7 +236,9 @@ class SurgameEquipmentService
 
                 $min = (int) $min;
                 $max = (int) $max;
-                if ($min > $max) {[$min, $max] = [$max, $min];}
+                if ($min > $max) {
+                    [$min, $max] = [$max, $min];
+                }
 
                 $candidates[$key] = [$min, $max];
             }
@@ -246,12 +251,12 @@ class SurgameEquipmentService
         // 抽 N 次
         $attributes = [];
         for ($i = 0; $i < $draws; $i++) {
-            $attrKey     = array_rand($candidates);
+            $attrKey = array_rand($candidates);
             [$min, $max] = $candidates[$attrKey];
-            $value       = random_int($min, $max);
+            $value = random_int($min, $max);
 
             $attributes[] = [
-                'type'  => $attrKey,
+                'type' => $attrKey,
                 'value' => $value,
             ];
         }
@@ -279,9 +284,9 @@ class SurgameEquipmentService
 
         foreach ($attributes as $attribute) {
             UserEquipmentAttribute::create([
-                'uid'             => $uid,
-                'equipment_id'    => $equipmentId,
-                'attribute_name'  => $attribute['type'],
+                'uid' => $uid,
+                'equipment_id' => $equipmentId,
+                'attribute_name' => $attribute['type'],
                 'attribute_value' => $attribute['value'],
             ]);
         }
@@ -325,9 +330,9 @@ class SurgameEquipmentService
                 $resultItems = [];
                 foreach ($dismantleItems as $itemId => $qty) {
                     $resultItems[] = [
-                        'item_id'    => $itemId,
+                        'item_id' => $itemId,
                         'manager_id' => GddbItems::where(['region' => 'Surgame', 'item_id' => $itemId])->value('manager_id'),
-                        'qty'        => $qty,
+                        'qty' => $qty,
                     ];
                 }
 
@@ -336,10 +341,11 @@ class SurgameEquipmentService
             });
         } catch (\Throwable $e) {
             Log::error('裝備分解 失敗', [
-                'uid'           => $uid,
+                'uid' => $uid,
                 'equipment_ids' => $equipmentIds,
-                'error'         => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
+
             return ['success' => 0, 'status' => false, 'error' => $e->getMessage()];
         }
     }
@@ -349,9 +355,9 @@ class SurgameEquipmentService
     {
         // 取得裝備基礎數值
         $equipment = UserEquipmentSession::with('attributes', 'baseAttributes')->where('id', $equipmentId)->first();
-        $atk       = 0;
-        $hp        = 0;
-        $def       = 0;
+        $atk = 0;
+        $hp = 0;
+        $def = 0;
         // 基礎數值
         $attr = $equipment->baseAttributes;
         if ($attr) {
@@ -376,14 +382,14 @@ class SurgameEquipmentService
         }
 
         $basePower = $this->calPower($atk, $hp, $def);
-        $position  = (int) substr($equipment->baseAttributes->type, -1);
+        $position = (int) substr($equipment->baseAttributes->type, -1);
 
         // 寫入資料庫方便mapping
         $powerAry = [
-            'uid'          => $equipment->uid,
+            'uid' => $equipment->uid,
             'equipment_id' => $equipment->id,
-            'position'     => $position,
-            'power'        => $this->calPower($atk, $hp, $def),
+            'position' => $position - 1,
+            'power' => $this->calPower($atk, $hp, $def),
         ];
 
         $powerRecord = UserEquipmentPower::where(['uid' => $equipment->uid, 'equipment_id' => $equipment->id])->first();
@@ -392,6 +398,7 @@ class SurgameEquipmentService
         } else {
             UserEquipmentPower::create($powerAry);
         }
+
         return true;
 
     }
@@ -400,9 +407,10 @@ class SurgameEquipmentService
     public function isEquipment($itemId)
     {
         $equipmentCacheKey = 'equipment_item_ids';
-        $equipmentItemIds  = Cache::remember($equipmentCacheKey, 3600, function () {
+        $equipmentItemIds = Cache::remember($equipmentCacheKey, 3600, function () {
             return GddbItems::where(['region' => 'Surgame', 'category' => 'Equipment'])->pluck('item_id')->toArray();
         });
+
         return in_array($itemId, $equipmentItemIds);
     }
 
@@ -427,8 +435,21 @@ class SurgameEquipmentService
 
         return [
             'item_id' => self::EQUIPMENT_DISMANTLE_ID,
-            'amount'  => $itemAmount,
+            'amount' => $itemAmount,
         ];
+    }
+
+    // 檢查該位置是否能使用該裝備
+    public function checkEquipmentCanUse($equipmentId, $position)
+    {
+        $equipment = UserEquipmentSession::whereHas('baseAttributes', function ($item) use ($position) {
+            $item->where('slot_position', $position);
+        })->where(['id' => $equipmentId])->first();
+        if (! $equipment) {
+            return false;
+        }
+
+        return true;
     }
 
     // 檢查使用者是否擁有所選裝備
@@ -438,22 +459,23 @@ class SurgameEquipmentService
         if (empty($userEquipmentUids)) {
             return [
                 'success' => 0,
-                'status'  => false,
-                'error'   => ErrorService::errorCode(__METHOD__, 'EQUIPMENT:0003'),
+                'status' => false,
+                'error' => ErrorService::errorCode(__METHOD__, 'EQUIPMENT:0003'),
             ];
         }
         if (! empty(array_diff($equipmentIds, $userEquipmentUids))) {
-            $errorAry                   = ErrorService::errorCode(__METHOD__, 'EQUIPMENT:0007');
+            $errorAry = ErrorService::errorCode(__METHOD__, 'EQUIPMENT:0007');
             $errorAry['equipment_uids'] = array_values(array_diff($equipmentIds, $userEquipmentUids));
+
             return [
                 'success' => 0,
-                'status'  => false,
-                'error'   => $errorAry,
+                'status' => false,
+                'error' => $errorAry,
             ];
         } else {
             return [
                 'success' => 1,
-                'status'  => true,
+                'status' => true,
             ];
         }
     }
@@ -464,6 +486,7 @@ class SurgameEquipmentService
         $itemIds = UserEquipmentSession::whereIn('id', $equipmentIds)
             ->pluck('item_id')
             ->toArray();
+
         return $itemIds;
     }
 
@@ -473,18 +496,20 @@ class SurgameEquipmentService
         try {
             $updated = UserEquipmentSession::where(['uid' => $uid, 'slot_id' => $slotId])
                 ->update([
-                    'slot_id'  => null,
+                    'slot_id' => null,
                     'position' => null,
-                    'is_used'  => 0,
+                    'is_used' => 0,
                 ]);
         } catch (\Throwable $e) {
             Log::error('角色裝備改為未使用 失敗', [
-                'uid'     => $uid,
+                'uid' => $uid,
                 'slot_id' => $slotId,
-                'error'   => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
+
             return false;
         }
+
         return $updated !== false;
     }
 
@@ -492,23 +517,30 @@ class SurgameEquipmentService
     public function getBestEquipments($uid): array
     {
         $bestEquipments = [];
-        for ($position = 1; $position <= 6; $position++) {
-            $equipment = UserEquipmentPower::where('uid', $uid)
-                ->where('position', $position)
+        for ($position = 0; $position <= 5; $position++) {
+            $equipments = UserEquipmentPower::whereHas('equipment', function ($query) {
+                $query->where('is_used', 0);
+            })
+                ->where('uid', $uid)
+                ->whereIn('position', range(0, 5))
                 ->orderBy('power', 'desc')
-                ->first(['position', 'power', 'equipment_id']);
-
-            if ($equipment) {
-                $bestEquipments[] = $equipment->toArray();
-            }
+                ->get(['position', 'power', 'equipment_id']);
+            $bestEquipments = $equipments
+                ->groupBy('position')
+                ->map(function ($group) {
+                    return $group->first()->toArray();
+                })
+                ->values()
+                ->all();
         }
+
         return $bestEquipments;
     }
 
     private function storeEquipment($uid, $itemId): int
     {
         return UserEquipmentSession::create([
-            'uid'     => $uid,
+            'uid' => $uid,
             'item_id' => $itemId,
         ])->id;
     }
@@ -517,14 +549,15 @@ class SurgameEquipmentService
     {
         return [
             'equipment_uid' => $equipment['equipment_uid'] ?? null,
-            'item_id'       => $equipment['item_id'] ?? null,
-            'manager_id'    => $equipment['base_attributes']['unique_id'] ?? null,
-            'deploy_index'  => $this->getSlotIndexById($uid, $equipment['slot_id']) ?? -1,
-            'equip_index'   => $equipment['position'] ?? -1,
-            'is_used'       => ! empty($equipment['is_used']) ? 1 : 0,
-            'attributes'    => array_map(function ($attr) {
+            'item_id' => $equipment['item_id'] ?? null,
+            'manager_id' => $equipment['base_attributes']['unique_id'] ?? null,
+            'slot_position' => $equipment['base_attributes']['slot_position'] ?? null,
+            'deploy_index' => $this->getSlotIndexById($uid, $equipment['slot_id']) ?? -1,
+            'equip_index' => $equipment['position'] ?? -1,
+            'is_used' => ! empty($equipment['is_used']) ? 1 : 0,
+            'attributes' => array_map(function ($attr) {
                 return [
-                    'attribute_name'  => $attr['attribute_name'],
+                    'attribute_name' => $attr['attribute_name'],
                     'attribute_value' => intval($attr['attribute_value']),
                 ];
             }, $equipment['attributes'] ?? []),
@@ -545,6 +578,7 @@ class SurgameEquipmentService
     public function calPower($atk = 0, $hp = 0, $def = 0)
     {
         $power = intval($atk * 2 + $hp * 1 + $def * 4);
+
         return $power;
     }
 }

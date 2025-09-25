@@ -62,11 +62,10 @@ class UserJourneyService
             return [];
         }
 
-        return [[
+        return [
             'chapter_id' => (int) $record->current_journey_id,
             'wave' => (int) $record->current_wave,
-        ]];
-
+        ];
     }
 
     /**
@@ -83,51 +82,31 @@ class UserJourneyService
             return [];
         }
 
-        $targetChapterId = $chapterId ?? (int) $record->current_journey_id;
-
-        // 撈出玩家已領取的 reward
-        $claimedIds = UserJourneyRewardMap::query()
-            ->where('uid', $uid)
-            ->pluck('reward_id')
-            ->toArray();
-
-        // 一次撈出所有 reward，依章節分組
-        $allRewards = GddbSurgameJourneyReward::query()
-            ->with('journey')
-            ->get()
-            ->groupBy('journey_id');
-
-        $actualChapterId = $targetChapterId;
-
-        // 找出最小未領的章節
-        foreach ($allRewards as $journeyId => $rewards) {
-            $diff = $rewards->pluck('id')->diff($claimedIds);
-
-            if ($diff->isNotEmpty()) {
-                $actualChapterId = $rewards->first()->journey->unique_id;
-                break;
-            }
-        }
-
-        // 找到章節
-        $journey = $this->findJourneyByIdentifier($actualChapterId);
-        if (! $journey) {
-            return [];
-        }
-
         $currentWave = $record?->current_wave ?? 0;
+        $currentJourneyId = $record?->current_journey_id ?? 0;
 
-        $rewardList = GddbSurgameJourneyReward::query()
-            ->where('journey_id', $journey->id)
-            ->orderBy('wave')
-            ->get();
+        // 如果有指定章節，只撈該章節；否則撈所有章節
+        $query = GddbSurgameJourneyReward::query()
+            ->with('journey')
+            ->orderBy('journey_id')
+            ->orderBy('wave');
+
+        if ($chapterId) {
+            $journey = $this->findJourneyByIdentifier($chapterId);
+            if (! $journey) {
+                return [];
+            }
+            $query->where('journey_id', $journey->id);
+        }
+
+        $rewardList = $query->get();
 
         if ($rewardList->isEmpty()) {
             return [];
         }
 
-        // 撈出該章節已領取的 reward
-        $chapterClaimedMap = UserJourneyRewardMap::query()
+        // 撈出玩家已領取的 reward
+        $claimedMap = UserJourneyRewardMap::query()
             ->where('uid', $uid)
             ->whereIn('reward_id', $rewardList->pluck('id'))
             ->pluck('is_received', 'reward_id')
@@ -139,12 +118,13 @@ class UserJourneyService
         foreach ($rewardList as $reward) {
             $rewardId = (int) $reward->id;
             $wave = (int) $reward->wave;
-            $isClaimed = (int) ($chapterClaimedMap[$rewardId] ?? 0);
+            $chapterUid = $reward->journey->unique_id ?? 0;
+            $isClaimed = (int) ($claimedMap[$rewardId] ?? 0);
 
             // 判斷是否解鎖
-            if ($journey->unique_id < $record->current_journey_id) {
+            if ($chapterUid < $currentJourneyId) {
                 $isUnlocked = 1;
-            } elseif ($journey->unique_id == $record->current_journey_id) {
+            } elseif ($chapterUid == $currentJourneyId) {
                 $isUnlocked = $currentWave >= $wave ? 1 : 0;
             } else {
                 $isUnlocked = 0;
@@ -153,11 +133,11 @@ class UserJourneyService
             // 是否可領取
             $canClaim = 0;
             if ($isUnlocked && ! $isClaimed) {
-                $canClaim = $this->canClaimReward($journey->unique_id, $wave, $uid) ? 1 : 0;
+                $canClaim = $this->canClaimReward($reward->journey_id, $wave, $uid) ? 1 : 0;
             }
 
             $rewards[] = [
-                'chapter_id' => $journey->unique_id,
+                'chapter_id' => $chapterUid,
                 'wave' => $wave,
                 'is_unlocked' => $isUnlocked,
                 'is_claimed' => $isClaimed,
@@ -307,32 +287,23 @@ class UserJourneyService
             return false;
         }
 
-        // 取出所有「必須先領的 reward」
-        $requiredRewards = GddbSurgameJourneyReward::whereHas('journey', function ($q) use ($chapterId) {
-            $q->where('unique_id', '<', $chapterId); // 前面章節
+        // 撈該 reward
+        $reward = GddbSurgameJourneyReward::whereHas('journey', function ($q) use ($chapterId) {
+            $q->where('unique_id', $chapterId);
         })
-            ->orWhere(function ($q) use ($chapterId, $wave) {
-                $q->whereHas('journey', function ($q2) use ($chapterId) {
-                    $q2->where('unique_id', $chapterId); // 同章節
-                })
-                    ->where('wave', '<', $wave); // 當前 wave 之前
-            })
-            ->pluck('id'); // 直接取出 id array
+            ->where('wave', $wave)
+            ->first();
 
-        if ($requiredRewards->isEmpty()) {
-            return true; // 沒有前置需求，直接可領
+        if (! $reward) {
+            return false;
         }
 
-        // 撈玩家已領取的 reward
-        $claimedIds = UserJourneyRewardMap::where('uid', $uid)
-            ->whereIn('reward_id', $requiredRewards)
-            ->pluck('reward_id')
-            ->toArray();
+        // 檢查是否已領取
+        $claimed = UserJourneyRewardMap::where('uid', $uid)
+            ->where('reward_id', $reward->id)
+            ->exists();
 
-        // 確認是否全部都有領
-        $diff = $requiredRewards->diff($claimedIds);
-
-        return $diff->isEmpty();
+        return ! $claimed;
     }
 
     /**

@@ -30,7 +30,7 @@ class UserEquipmentPower extends Model
      */
     public function equipment()
     {
-        return $this->belongsTo(UserEquipmentSession::class, 'equip_id', 'id');
+        return $this->belongsTo(UserEquipmentSession::class, 'equipment_id', 'id');
     }
 
     /**

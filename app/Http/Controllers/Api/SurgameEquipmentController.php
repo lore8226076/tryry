@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
@@ -11,14 +12,16 @@ use Illuminate\Http\Request;
 class SurgameEquipmentController extends Controller
 {
     public $equipmentService;
+
     public $deploySlotService;
+
     public function __construct(Request $request, SurgameEquipmentService $equipmentService, DeploySlotService $deploySlotService)
     {
-        $origin                  = $request->header('Origin');
-        $referer                 = $request->header('Referer');
-        $this->equipmentService  = $equipmentService;
+        $origin = $request->header('Origin');
+        $referer = $request->header('Referer');
+        $this->equipmentService = $equipmentService;
         $this->deploySlotService = $deploySlotService;
-        $referrerDomain          = parse_url($origin, PHP_URL_HOST) ?? parse_url($referer, PHP_URL_HOST);
+        $referrerDomain = parse_url($origin, PHP_URL_HOST) ?? parse_url($referer, PHP_URL_HOST);
         if ($referrerDomain != config('services.API_PASS_DOMAIN')) {
             $this->middleware('auth:api', ['except' => []]);
         }
@@ -45,7 +48,7 @@ class SurgameEquipmentController extends Controller
         if (empty($user)) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0006'), 422);
         }
-        $uid       = $user->uid;
+        $uid = $user->uid;
         $slotIndex = $request->input('deploy_index');
         if (! in_array($slotIndex, [0, 1, 2, 3, 4])) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'DeploySlot:0002'), 422);
@@ -74,7 +77,7 @@ class SurgameEquipmentController extends Controller
         if (empty($user)) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0006'), 422);
         }
-        $uid    = $user->uid;
+        $uid = $user->uid;
         $itemId = $request->input('item_id');
         if (empty($itemId) || $this->equipmentService->isEquipment($itemId) === false) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'EQUIPMENT:0005'), 422);
@@ -102,12 +105,17 @@ class SurgameEquipmentController extends Controller
         if (empty($user)) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0006'), 422);
         }
-        $uid         = $user->uid;
+        $uid = $user->uid;
         $equipmentId = $request->input('equipment_uid');
-        $slotIndex   = $request->input('deploy_index');
-        $position    = $request->input('equip_index');
+        $slotIndex = $request->input('deploy_index');
+        $position = $request->input('equip_index');
         if (empty($equipmentId) || ! in_array($slotIndex, [0, 1, 2, 3, 4]) || ! in_array($position, [0, 1, 2, 3, 4, 5])) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'EQUIPMENT:0002'), 422);
+        }
+        // 檢查裝備是否可以穿
+        $canUse = $this->equipmentService->checkEquipmentCanUse($equipmentId, $position);
+        if ($canUse === false) {
+            return response()->json(ErrorService::errorCode(__METHOD__, 'EQUIPMENT:0003'), 422);
         }
 
         // 取得陣位id
@@ -133,7 +141,7 @@ class SurgameEquipmentController extends Controller
         if (empty($user)) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0006'), 422);
         }
-        $uid          = $user->uid;
+        $uid = $user->uid;
         $equipmentIds = $request->input('equipment_uids');
         if (is_string($equipmentIds)) {
             $equipmentIds = json_decode($equipmentIds, true);

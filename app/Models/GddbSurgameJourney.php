@@ -7,7 +7,6 @@ class GddbSurgameJourney extends Model
 {
     protected $table = 'gddb_surgame_journeys';
 
-    // 此表沒有時間戳記欄位
     public $timestamps = false;
 
     protected $fillable = [

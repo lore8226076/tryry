@@ -1,9 +1,10 @@
 <?php
+
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\UserItems;
 use App\Models\UserEquipmentSession;
+use App\Models\UserItems;
 use App\Models\Users;
 use App\Service\ErrorService;
 use App\Service\ItemPackageService;
@@ -14,8 +15,8 @@ class PackageController extends Controller
 {
     public function __construct(Request $request)
     {
-        $origin         = $request->header('Origin');
-        $referer        = $request->header('Referer');
+        $origin = $request->header('Origin');
+        $referer = $request->header('Referer');
         $referrerDomain = parse_url($origin, PHP_URL_HOST) ?? parse_url($referer, PHP_URL_HOST);
         if ($referrerDomain != config('services.API_PASS_DOMAIN')) {
             $this->middleware('auth:api', ['except' => []]);
@@ -29,13 +30,17 @@ class PackageController extends Controller
             return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0005'), 422);
         }
         // 非裝備
-        $items = UserItems::where('category', '!=', 'Equipment')->where(['user_id' => $user->id, 'region' => 'Surgame'])->get();
+        $items = UserItems::with(['item', 'item.itemPackage'])->where('category', '!=', 'Equipment')->where(['user_id' => $user->id, 'region' => 'Surgame'])->get();
         $items = $this->formatUserInventory($items);
         // 裝備
-        // $equipments = UserEquipmentSession::with('attributes')->where('uid', $user->uid)->get();
-        // $equipments = $this->formatUserEquipments($equipments);
-        // dd($equipments);
-        return response()->json(['data' => $items]);
+        $equipments = UserEquipmentSession::with('attributes')->where('uid', $user->uid)->get();
+        $equipments = $this->formatUserEquipments($equipments);
+        // 符文
+        $runes = []; // TODO: 符文系統尚未開發
+
+        $results = $this->formatPackages($items, $equipments, $runes);
+
+        return response()->json(['data' => $results], 200);
     }
 
     // 使用背包物品
@@ -70,32 +75,67 @@ class PackageController extends Controller
             if ($result['success'] != 1) {
                 return response()->json(ErrorService::errorCode(__METHOD__, 'INVENTORY:0005'), 422);
             }
+
             return response()->json(['data' => $result['data']], 200);
         } catch (\Exception $e) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'INVENTORY:0005'), 422);
         }
+
         return response()->json(['data' => $result['data']], 200);
     }
 
     private function formatUserInventory(Collection $items)
     {
-        return $items->map(function ($item) {
+        $newItems = $items->map(function ($item) {
             return [
-                'item_id'    => $item->item_id,
+                'item_id' => $item->item_id,
                 'manager_id' => $item->manager_id,
-                'qty'        => (int) $item->qty,
+                'qty' => (int) $item->qty,
+                'type' => $item->item?->itemPackage?->use_necessary > 1 ? 'shard' : 'item',
             ];
         })->values()->all();
+
+        $results = [];
+        foreach ($newItems as $item) {
+            $results['item'] ??= [];
+            $results['shard'] ??= [];
+            if ($item['type'] == 'item') {
+                $results['item'][] = [
+                    'item_id' => $item['item_id'],
+                    'manager_id' => $item['manager_id'],
+                    'qty' => $item['qty'],
+                ];
+            } else {
+                $results['shard'][] = [
+                    'item_id' => $item['item_id'],
+                    'manager_id' => $item['manager_id'],
+                    'qty' => $item['qty'],
+                ];
+            }
+        }
+
+        return $results;
     }
 
     private function formatUserEquipments(Collection $equipments)
     {
-        return $equipments->map(fn($eq) => [
+        return $equipments->map(fn ($eq) => [
             'equipment_uid' => $eq->uid,
-            'item_id'       => $eq->item_id,
-            'level'         => (int) $eq->level,
-            'ex_attr'       => json_decode($eq->attributes, true),
+            'item_id' => $eq->item_id,
+            'manager_id' => $eq->item?->manager_id,
+            'slot_position' => (int) $eq->baseAttributes->slot_position,
+            'ex_attr' => json_decode($eq->attributes, true),
         ])->values()->all();
     }
 
+    // 完整背包回傳格式
+    private function formatPackages($items, $equipments, $runes = [])
+    {
+        $results = [];
+        $results['items'] = $items;
+        $results['equipments'] = $equipments;
+        $results['runes'] = (object) $runes;
+
+        return $results;
+    }
 }

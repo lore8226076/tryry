@@ -44,6 +44,11 @@ class CharacterJourneyController extends Controller
             return response()->json(ErrorService::errorCode(__METHOD__, 'JOURNEY:0002'), 422);
         }
 
+        // 檢查是否有此章節
+        if (! $this->journeyService->findJourneyByIdentifier((int) $chapterId)) {
+            return response()->json(ErrorService::errorCode(__METHOD__, 'JOURNEY:0001'), 422);
+        }
+
         try {
             $progress = $this->journeyService->updateJourneyProgress(
                 $uid,

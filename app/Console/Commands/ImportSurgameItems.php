@@ -354,6 +354,21 @@ class ImportSurgameItems extends Command
                 $eq->save();
             }
         }
+
+        // 依據type定義可裝備位置, 取type最後一個數字 -1 為位置
+        foreach ($equipments as $eq) {
+            // 取得整個字串最後一個文字
+            $lastChar = substr($eq->type, -1);
+            if (is_numeric($lastChar)) {
+                $position = (int) $lastChar - 1;
+                if ($position >= 0 && $position <= 5) {
+                    $eq->slot_position = $position;
+                    $eq->save();
+                }
+            }
+        }
+
+
         $this->info('Equipment 匯入完成');
     }
     private function migrateEqEnhance()

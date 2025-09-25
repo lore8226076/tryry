@@ -1,9 +1,11 @@
 <?php
+
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\CharacterDeploySlot as DeploySlot;
 use App\Models\UserCharacter;
+use App\Models\UserEquipmentSession;
 use App\Models\Users;
 use App\Models\UserSlotEquipment;
 use App\Service\DeploySlotService;
@@ -13,11 +15,10 @@ use Illuminate\Support\Facades\DB;
 
 class DeploySlotController extends Controller
 {
-
     public function __construct(Request $request)
     {
-        $origin         = $request->header('Origin');
-        $referer        = $request->header('Referer');
+        $origin = $request->header('Origin');
+        $referer = $request->header('Referer');
         $referrerDomain = parse_url($origin, PHP_URL_HOST) ?? parse_url($referer, PHP_URL_HOST);
         if ($referrerDomain != config('services.API_PASS_DOMAIN')) {
             $this->middleware('auth:api', ['except' => ['showItems']]);
@@ -27,26 +28,74 @@ class DeploySlotController extends Controller
     // 取得特定人的 slot，若無則自動建立
     public function showItems(Request $request, $uid = null)
     {
+        // 確認玩家存在
         $user = Users::where('uid', $uid)->first();
 
         if (! $user || $uid === null) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0005'), 422);
         }
 
-        $slot = DeploySlot::where('uid', $uid)->get();
+        // 讀取玩家陣位，若不存在則初始化
+        $slots = DeploySlot::where('uid', $uid)->orderBy('position', 'asc')->get();
 
-        if ($slot->isEmpty()) {
+        if ($slots->isEmpty()) {
             $this->initDeploySlot($uid);
-            $slot = DeploySlot::where('uid', $uid)->get();
+            $slots = DeploySlot::where('uid', $uid)->orderBy('position', 'asc')->get();
         }
 
-        $slotArray = [];
+        $slotIds = $slots->pluck('id');
 
-        for ($i = 0; $i < 5; $i++) {
-            $slotArray['slot_' . $i . '_level'] = $slot->firstWhere('position', $i)->level ?? 1;
+        // 撈取裝備與強化資訊，僅整理現有資料
+        $equipmentBySlot = collect();
+        $upgradeBySlot = collect();
+
+        if ($slotIds->isNotEmpty()) {
+            $equipmentBySlot = UserEquipmentSession::with('item')
+                ->whereIn('slot_id', $slotIds)
+                ->where('is_used', 1)
+                ->orderBy('position', 'asc')
+                ->get()
+                ->groupBy('slot_id');
+
+            $upgradeBySlot = UserSlotEquipment::where('uid', $uid)
+                ->whereIn('slot_id', $slotIds)
+                ->get()
+                ->groupBy('slot_id');
         }
 
-        return response()->json(['data' => $slotArray]);
+        // 組裝符合前端需求的陣位資料
+        $response = $slots->map(function ($slot) use ($equipmentBySlot, $upgradeBySlot) {
+            $slotEquipments = $equipmentBySlot->get($slot->id, collect())
+                ->filter(fn ($equipment) => $equipment->position !== null);
+
+            $upgradeMap = $upgradeBySlot->get($slot->id, collect())->keyBy('position');
+
+            $equipments = $slotEquipments
+                ->map(function ($equipment) use ($upgradeMap) {
+                    $position = (int) $equipment->position;
+                    $upgradeRow = $upgradeMap->get($position);
+
+                    return [
+                        'equip_index' => $position,
+                        'equipment_uid' => (int) $equipment->id,
+                        'equipment_manager_id' => (int) $equipment?->item?->manager_id,
+                        'slot_position' => (int) $equipment?->item?->slot_position,
+                        'refine_level' => (int) ($upgradeRow->refine_level ?? 1),
+                        'enhance_level' => (int) ($upgradeRow->enhance_level ?? 1),
+                    ];
+                })
+                ->values()
+                ->all();
+
+            return [
+                'slot_index' => (int) ($slot->position ?? 0),
+                'slot_level' => (int) ($slot->level ?? 1),
+                'equipments' => $equipments,
+                'runes' => [],
+            ];
+        })->values()->all();
+
+        return response()->json(['data' => $response]);
     }
 
     // 更新或建立 deploy slot，僅更新有傳的欄位
@@ -81,7 +130,7 @@ class DeploySlotController extends Controller
         }
 
         // 等級上限檢查
-        $targetLv       = $slot->level + 1;
+        $targetLv = $slot->level + 1;
         $checkLvMaximum = DeploySlotService::getLvMaximum($targetLv);
         if ($checkLvMaximum === false) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'DeploySlot:0008'), 422);
@@ -113,8 +162,8 @@ class DeploySlotController extends Controller
         // 組裝舊版格式
         $response = [];
         for ($i = 0; $i < 5; $i++) {
-            $slotRow                            = $allSlots->firstWhere('position', $i);
-            $response["slot_{$i}_level"]        = $slotRow->level ?? 1;
+            $slotRow = $allSlots->firstWhere('position', $i);
+            $response["slot_{$i}_level"] = $slotRow->level ?? 1;
             $response["slot_{$i}_character_id"] = $slotRow->character_id ?? null;
         }
 
@@ -154,10 +203,10 @@ class DeploySlotController extends Controller
         $slotsInput = array_slice($slotsInput, 0, 5);
 
         // 轉換為 int 或 null
-        $slotsInput = array_map(fn($v) => $v === null || $v === -1 ? null : (int) $v, $slotsInput);
+        $slotsInput = array_map(fn ($v) => $v === null || $v === -1 ? null : (int) $v, $slotsInput);
 
         // 檢查重複角色（排除 null）
-        $nonNullSlots = array_filter($slotsInput, fn($v) => $v !== null);
+        $nonNullSlots = array_filter($slotsInput, fn ($v) => $v !== null);
         if (count($nonNullSlots) !== count(array_unique($nonNullSlots))) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'DeploySlot:0005'), 422);
         }
@@ -165,8 +214,9 @@ class DeploySlotController extends Controller
         // 檢查角色必須屬於玩家
         foreach ($nonNullSlots as $characterId) {
             if (! UserCharacter::where('uid', $uid)->where('character_id', $characterId)->exists()) {
-                $error                       = ErrorService::errorCode(__METHOD__, 'CHARACTER:0001');
+                $error = ErrorService::errorCode(__METHOD__, 'CHARACTER:0001');
                 $error['error_character_id'] = $characterId;
+
                 return response()->json($error, 422);
             }
         }
@@ -204,8 +254,8 @@ class DeploySlotController extends Controller
         // 組裝舊版格式
         $response = [];
         for ($i = 0; $i < 5; $i++) {
-            $slotRow                            = $slots->firstWhere('position', $i);
-            $response["slot_{$i}_level"]        = $slotRow->level ?? 1;
+            $slotRow = $slots->firstWhere('position', $i);
+            $response["slot_{$i}_level"] = $slotRow->level ?? 1;
             $response["slot_{$i}_character_id"] = $slotRow->character_id ?? null;
         }
 
@@ -220,8 +270,8 @@ class DeploySlotController extends Controller
             return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0005'), 422);
         }
         $deployIndex = $request->input('deploy_index');   // 陣位位置
-        $equipIndex  = $request->input('equip_index');    // 裝備位置
-        $times       = (int) $request->input('times', 1); // 強化次數
+        $equipIndex = $request->input('equip_index');    // 裝備位置
+        $times = (int) $request->input('times', 1); // 強化次數
         if (! in_array($deployIndex, [0, 1, 2, 3, 4]) || ! in_array($equipIndex, [0, 1, 2, 3, 4, 5]) || ! in_array($times, [1, 10])) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'EQUIPMENT:0002'), 422);
         }
@@ -270,6 +320,7 @@ class DeploySlotController extends Controller
         if ($result) {
             return response()->json(['data' => $result], 200);
         }
+
         return response()->json([], 422);
     }
 
@@ -322,6 +373,7 @@ class DeploySlotController extends Controller
         if ($result) {
             return response()->json(['data' => $result], 200);
         }
+
         return response()->json([], 422);
     }
 
@@ -346,10 +398,7 @@ class DeploySlotController extends Controller
             return $svc->initUserSlotEquipment($uid);
         }
         $response = $svc->formatShowEnhanceData($slots, 'multiple');
-        $response = collect($response)->sortBy([
-            ['deploy_index', 'asc'],
-            ['equip_index', 'asc'],
-        ])->values()->all();
+        $response = $this->formatterResults($response);
 
         return response()->json(['data' => $response]);
     }
@@ -359,12 +408,12 @@ class DeploySlotController extends Controller
         $manyData = [];
         for ($i = 0; $i < 5; $i++) {
             $manyData[] = [
-                'uid'          => $uid,
+                'uid' => $uid,
                 'character_id' => null,
-                'level'        => 1,
-                'position'     => $i,
-                'created_at'   => now(),
-                'updated_at'   => now(),
+                'level' => 1,
+                'position' => $i,
+                'created_at' => now(),
+                'updated_at' => now(),
             ];
         }
 
@@ -375,11 +424,13 @@ class DeploySlotController extends Controller
             DeploySlot::insert($manyData);
         } catch (\Exception $e) {
             \Log::error('[initDeploySlot] 創建玩家初始陣位資料失敗', [
-                'uid'   => $uid,
+                'uid' => $uid,
                 'error' => $e->getMessage(),
             ]);
+
             return null;
         }
+
         return true;
     }
 
@@ -390,4 +441,26 @@ class DeploySlotController extends Controller
             ->exists();
     }
 
+    private function formatterResults($data)
+    {
+        return collect($data)
+            ->sortBy([
+                ['deploy_index', 'asc'],
+                ['equip_index', 'asc'],
+            ])
+            ->groupBy('deploy_index')
+            ->map(function ($group, $deployIndex) {
+                return $group->map(function ($item) {
+                    return [
+                        'equip_index' => $item['equip_index'],
+                        'refine_level' => $item['refine_level'],
+                        'enhance_level' => $item['enhance_level'],
+                    ];
+                })->values()->all();
+            })
+            ->mapWithKeys(function ($group, $deployIndex) {
+                return ["equipment_{$deployIndex}_level" => $group];
+            })
+            ->toArray();
+    }
 }
