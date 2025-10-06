@@ -59,6 +59,12 @@ class SurgameEquipmentController extends Controller
         if (empty($slotId)) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'DeploySlot:0003'), 422);
         }
+        $oldEquipment = $this->equipmentService->getHasUseEquipments($uid, $slotId);
+        if (count($oldEquipment) > 6) {
+            return response()->json(ErrorService::errorCode(__METHOD__, 'EQUIPMENT:0003'), 422);
+        }
+        // 陣列只取得equipment_uid得值重組並保留值陣列
+        $oldEquipmentIds = $this->arrayPluckEquipmentIds($oldEquipment);
         $result = $this->equipmentService->autoEquip($uid, $slotId);
         if ($result === false) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'EQUIPMENT:0004'), 422);
@@ -66,6 +72,9 @@ class SurgameEquipmentController extends Controller
 
         // 取得特定陣位的裝備
         $currentEquipment = $this->equipmentService->getHasUseEquipments($uid, $slotId);
+        $currentEquipmentIds = $this->arrayPluckEquipmentIds($currentEquipment);
+        $oldEquipment = $this->equipmentService->getEquipmentsByIds($oldEquipmentIds, $currentEquipmentIds, $uid); // 取得舊裝備資料並排除新裝備
+        $currentEquipment = array_merge($oldEquipment, $currentEquipment);
 
         return response()->json(['data' => $currentEquipment], 200);
     }
@@ -108,14 +117,8 @@ class SurgameEquipmentController extends Controller
         $uid = $user->uid;
         $equipmentId = $request->input('equipment_uid');
         $slotIndex = $request->input('deploy_index');
-        $position = $request->input('equip_index');
-        if (empty($equipmentId) || ! in_array($slotIndex, [0, 1, 2, 3, 4]) || ! in_array($position, [0, 1, 2, 3, 4, 5])) {
+        if (empty($equipmentId) || ! in_array($slotIndex, [0, 1, 2, 3, 4])) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'EQUIPMENT:0002'), 422);
-        }
-        // 檢查裝備是否可以穿
-        $canUse = $this->equipmentService->checkEquipmentCanUse($equipmentId, $position);
-        if ($canUse === false) {
-            return response()->json(ErrorService::errorCode(__METHOD__, 'EQUIPMENT:0003'), 422);
         }
 
         // 取得陣位id
@@ -123,15 +126,17 @@ class SurgameEquipmentController extends Controller
         if (empty($slotId)) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'DeploySlot:0003'), 422);
         }
-        $result = $this->equipmentService->equipEquipment($uid, $equipmentId, $slotId, $position);
+        // // 取得當前裝備
+        // $oldEquipment = $this->equipmentService->getHasUseEquipments($uid, $slotId);
+        // if (count($oldEquipment) > 6) {
+        //     return response()->json(ErrorService::errorCode(__METHOD__, 'EQUIPMENT:0003'), 422);
+        // }
+        $result = $this->equipmentService->equipEquipment($uid, $equipmentId, $slotId);
         if ($result === false) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'EQUIPMENT:0004'), 422);
         }
 
-        // 取得特定陣位的裝備
-        $currentEquipment = $this->equipmentService->getHasUseEquipments($uid, $slotId);
-
-        return response()->json(['data' => $currentEquipment], 200);
+        return response()->json(['data' => $result], 200);
     }
 
     // 分解裝備
@@ -173,5 +178,13 @@ class SurgameEquipmentController extends Controller
         }
 
         return response()->json(['data' => $salvageResult['data']], 200);
+    }
+
+    // 陣列只取得equipment_uid得值重組並保留值陣列
+    private function arrayPluckEquipmentIds($array)
+    {
+        return array_map(function ($item) {
+            return $item['equipment_uid'];
+        }, $array);
     }
 }

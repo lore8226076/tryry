@@ -15,8 +15,8 @@ class UserSlotEquipment extends Model
         'uid',
         'slot_id',
         'position',
-        'refine_level',
         'enhance_level',
+        'refine_level',
         'success_rate'
     ];
 

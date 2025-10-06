@@ -95,23 +95,27 @@ class SurgameEquipmentService
     }
 
     // 角色綁裝備
-    public function equipEquipment($uid, $newEquipmentId, $slotId, $position): bool
+    public function equipEquipment($uid, $newEquipmentId, $slotId): bool|array
     {
         // 新裝備
-        $newEquipment = UserEquipmentSession::where(['id' => $newEquipmentId, 'uid' => $uid])->first();
+        $newEquipment = UserEquipmentSession::with(['attributes', 'baseAttributes'])->where(['id' => $newEquipmentId, 'uid' => $uid])->first();
         if (! $newEquipment) {
             return false;
         }
+        $position = $newEquipment?->baseAttributes?->slot_position ?? null;
+        if ($position === null) {
+            return false;
+        }
         // 找舊裝備
-        $currentEquipment = UserEquipmentSession::where([
-            'uid' => $uid,
-            'slot_id' => $slotId,
-            'position' => $position,
-        ])->first();
+        $currentEquipment = UserEquipmentSession::with(['attributes', 'baseAttributes'])
+            ->where([
+                'uid' => $uid,
+                'slot_id' => $slotId,
+                'position' => $position,
+            ])->first();
 
-        if ($currentEquipment && $currentEquipment->equipment_id === $newEquipment->id) {
-            // 同一件裝備，不處理
-            return true;
+        if ($currentEquipment && $currentEquipment->id === $newEquipment->id) {
+            return [];
         }
 
         if ($currentEquipment) {
@@ -141,14 +145,21 @@ class SurgameEquipmentService
             ]);
         }
 
-        return true;
+        $results = [];
+        if ($currentEquipment) {
+            $results[] = $this->formatterUserEquipment($currentEquipment->toArray(), $uid);
+        }
+        $results[] = $this->formatterUserEquipment($newEquipment->toArray(), $uid);
+
+        return $results;
+
     }
 
     // 取得角色當前裝備
     public function getUserEquipment($uid): array
     {
         $currentEquipment = UserEquipmentSession::where('uid', $uid)
-            ->with(['attributes', 'baseAttributes','item'])
+            ->with(['attributes', 'baseAttributes', 'item'])
             ->get()
             ->map(function ($equip) use ($uid) {
                 return $this->formatterUserEquipment($equip->toArray(), $uid);
@@ -187,6 +198,23 @@ class SurgameEquipmentService
         }
 
         return $equipment;
+    }
+
+    /** 透過指定裝備ids 與排除的裝備ids 建立回傳資料 */
+    public function getEquipmentsByIds($equipmentIds = [], $excludeIds = [], $uid = null): array
+    {
+        if (empty($equipmentIds)) {
+            return [];
+        }
+        $equipments = UserEquipmentSession::with(['attributes', 'baseAttributes'])
+            ->whereIn('id', $equipmentIds)
+            ->whereNotIn('id', $excludeIds) // 排除不需要的
+            ->get()
+            ->map(function ($equip) use ($uid) {
+                return $this->formatterUserEquipment($equip->toArray(), $uid);
+            })->toArray();
+
+        return $equipments;
     }
 
     // 隨機裝備的屬性
@@ -439,19 +467,6 @@ class SurgameEquipmentService
         ];
     }
 
-    // 檢查該位置是否能使用該裝備
-    public function checkEquipmentCanUse($equipmentId, $position)
-    {
-        $equipment = UserEquipmentSession::whereHas('baseAttributes', function ($item) use ($position) {
-            $item->where('slot_position', $position);
-        })->where(['id' => $equipmentId])->first();
-        if (! $equipment) {
-            return false;
-        }
-
-        return true;
-    }
-
     // 檢查使用者是否擁有所選裝備
     public function checkUserHasEquipment($uid, $equipmentIds): array
     {
@@ -551,7 +566,6 @@ class SurgameEquipmentService
             'equipment_uid' => $equipment['equipment_uid'] ?? null,
             'item_id' => $equipment['item_id'] ?? null,
             'manager_id' => $equipment['base_attributes']['unique_id'] ?? null,
-            'slot_position' => $equipment['base_attributes']['slot_position'] ?? null,
             'deploy_index' => $this->getSlotIndexById($uid, $equipment['slot_id']) ?? -1,
             'equip_index' => $equipment['position'] ?? -1,
             'is_used' => ! empty($equipment['is_used']) ? 1 : 0,

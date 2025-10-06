@@ -42,6 +42,7 @@ class UserItemLogs extends BaseModel
     // 禮包相關
     public const TYPE_ITEM_PACKAGE   = 80; // 禮包道具
 
+
     public const REGION_MAP = 'Map';
 
     public static function getTypes()

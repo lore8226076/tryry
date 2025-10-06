@@ -10,6 +10,7 @@ use App\Models\Users;
 use App\Models\UserSlotEquipment;
 use App\Service\DeploySlotService;
 use App\Service\ErrorService;
+use App\Service\UserItemService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -26,7 +27,7 @@ class DeploySlotController extends Controller
     }
 
     // 取得特定人的 slot，若無則自動建立
-    public function showItems(Request $request, $uid = null)
+    public function showItems(Request $request, $uid = null, DeploySlotService $svc)
     {
         // 確認玩家存在
         $user = Users::where('uid', $uid)->first();
@@ -64,28 +65,34 @@ class DeploySlotController extends Controller
         }
 
         // 組裝符合前端需求的陣位資料
-        $response = $slots->map(function ($slot) use ($equipmentBySlot, $upgradeBySlot) {
+        $response = $slots->map(function ($slot) use ($equipmentBySlot, $upgradeBySlot, $svc) {
             $slotEquipments = $equipmentBySlot->get($slot->id, collect())
                 ->filter(fn ($equipment) => $equipment->position !== null);
 
             $upgradeMap = $upgradeBySlot->get($slot->id, collect())->keyBy('position');
 
-            $equipments = $slotEquipments
-                ->map(function ($equipment) use ($upgradeMap) {
-                    $position = (int) $equipment->position;
-                    $upgradeRow = $upgradeMap->get($position);
+            // 假設一個 slot 最多 0~5 的位置
+            $allPositions = collect(range(0, 5));
 
-                    return [
-                        'equip_index' => $position,
-                        'equipment_uid' => (int) $equipment->id,
-                        'equipment_manager_id' => (int) $equipment?->item?->manager_id,
-                        'slot_position' => (int) $equipment?->item?->slot_position,
-                        'refine_level' => (int) ($upgradeRow->refine_level ?? 1),
-                        'enhance_level' => (int) ($upgradeRow->enhance_level ?? 1),
-                    ];
-                })
-                ->values()
-                ->all();
+            $equipments = $allPositions->map(function ($position) use ($slotEquipments, $upgradeMap, $svc) {
+                $equipment = $slotEquipments->firstWhere('position', $position);
+                $upgradeRow = $upgradeMap->get($position);
+
+                // 取得對應陣位的裝備的refine成功機率
+                if ($upgradeRow) {
+                    $refineSuccessRate = $svc->getCurrentSuccessRate($upgradeRow);
+                } else {
+                    $refineSuccessRate = 40; // 預設 40%
+                }
+                return [
+                    'equip_index' => $position,
+                    'equipment_uid' => (int) ($equipment->id ?? -1),  // 沒裝備 → 0
+                    'equipment_manager_id' => (int) ($equipment?->item?->manager_id ?? -1),
+                    'enhance_level' => (int) ($upgradeRow->enhance_level ?? 1), // 預設 1
+                    'refine_level' => (int) ($upgradeRow->refine_level ?? 0), // 預設 0
+                    'refine_success_rate' => (int) ($refineSuccessRate ?? 40), // 預設 0
+                ];
+            })->values()->all();
 
             return [
                 'slot_index' => (int) ($slot->position ?? 0),
@@ -263,7 +270,7 @@ class DeploySlotController extends Controller
     }
 
     // 裝備精煉等級提升
-    public function updateRefineLv(Request $request, DeploySlotService $svc)
+    public function updateRefineLv(Request $request, DeploySlotService $svc, UserItemService $userItemSvc)
     {
         $uid = auth()->guard('api')->user()->uid;
         if (empty($uid)) {
@@ -316,7 +323,9 @@ class DeploySlotController extends Controller
         $userEquipment->loadMissing('deploySlot');
         // 結果
 
-        $result = $svc->formatShowEnhanceData($userEquipment->refresh(), 'single', $refineResult);
+        $upgradeInfo = $svc->formatShowEnhanceData($userEquipment->refresh(), 'single', $refineResult);
+        $result['upgrade_info'] = $upgradeInfo;
+        $result['inventory_info'] = $userItemSvc->getFormattedItems($uid, [192]);
         if ($result) {
             return response()->json(['data' => $result], 200);
         }
@@ -325,7 +334,7 @@ class DeploySlotController extends Controller
     }
 
     // 裝備強化等級更新
-    public function updateEnhanceLv(Request $request, DeploySlotService $svc)
+    public function updateEnhanceLv(Request $request, DeploySlotService $svc, UserItemService $userItemSvc)
     {
         $uid = auth()->guard('api')->user()->uid;
         if (empty($uid)) {
@@ -358,7 +367,7 @@ class DeploySlotController extends Controller
             // 確保有載到 deploySlot，避免 N+1 / null
             $userEquipment->loadMissing('deploySlot');
             // 結果
-            $result = $svc->formatShowEnhanceData($userEquipment->refresh());
+            $upgradeInfo = $svc->formatShowEnhanceData($userEquipment->refresh());
         } else {
             // 一鍵升級
             $ok = $svc->enhanceEquipment($slotId);
@@ -368,8 +377,10 @@ class DeploySlotController extends Controller
             $slots = UserSlotEquipment::with('deploySlot')->where('uid', $uid)
                 ->where('slot_id', $slotId)
                 ->get();
-            $result = $svc->formatShowEnhanceData($slots, 'multiple');
+            $upgradeInfo = $svc->formatShowEnhanceData($slots, 'multiple');
         }
+        $result['upgrade_info'] = $upgradeInfo;
+        $result['inventory_info'] = $userItemSvc->getFormattedItems($uid, [101,191]);
         if ($result) {
             return response()->json(['data' => $result], 200);
         }
@@ -453,8 +464,8 @@ class DeploySlotController extends Controller
                 return $group->map(function ($item) {
                     return [
                         'equip_index' => $item['equip_index'],
-                        'refine_level' => $item['refine_level'],
                         'enhance_level' => $item['enhance_level'],
+                        'refine_level' => $item['refine_level'],
                     ];
                 })->values()->all();
             })

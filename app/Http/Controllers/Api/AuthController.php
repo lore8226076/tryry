@@ -12,8 +12,10 @@ use App\Models\UserMaps;
 use App\Models\UserPet;
 use App\Models\Users;
 use App\Models\UserSettings;
+use App\Models\UserSlotEquipment;
 use App\Models\UserSurGameInfo;
 use App\Service\BlocklistService;
+use App\Service\DeploySlotService;
 use App\Service\ErrorService;
 use App\Service\FollowService;
 use App\Service\GradeTaskService;
@@ -22,7 +24,6 @@ use App\Service\TaskService;
 use App\Service\UserItemService;
 use App\Service\UserPetService;
 use App\Service\UserService;
-use App\Service\DeploySlotService;
 use App\Service\UserStatsService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -142,6 +143,10 @@ class AuthController extends Controller
         // 檢查是否有陣位資料
         if (! $this->checkUserDeploySlot($user->uid)) {
             $this->createMainCharacterDeploySlot($user->uid);
+        }
+
+        // 檢查是否有精煉/強化資料
+        if (! $this->checkUserDeploySlotEquip($user->uid)) {
             $this->initSlotEquip($user->uid);
         }
 
@@ -260,6 +265,10 @@ class AuthController extends Controller
         // 檢查是否有陣位資料
         if (! $this->checkUserDeploySlot($user->uid)) {
             $this->createMainCharacterDeploySlot($user->uid);
+        }
+
+        // 檢查是否有精煉/強化資料
+        if (! $this->checkUserDeploySlotEquip($user->uid)) {
             $this->initSlotEquip($user->uid);
         }
         // 檢查是否需要初始化天賦資料
@@ -343,6 +352,10 @@ class AuthController extends Controller
         // 檢查是否有陣位資料
         if (! $this->checkUserDeploySlot($user->uid)) {
             $this->createMainCharacterDeploySlot($user->uid);
+        }
+
+        // 檢查是否有精煉/強化資料
+        if (! $this->checkUserDeploySlotEquip($user->uid)) {
             $this->initSlotEquip($user->uid);
         }
 
@@ -476,9 +489,12 @@ class AuthController extends Controller
         // 檢查是否有陣位資料
         if (! $this->checkUserDeploySlot($user->uid)) {
             $this->createMainCharacterDeploySlot($user->uid);
-            $this->initSlotEquip($user->uid);
         }
 
+        // 檢查是否有精煉/強化資料
+        if (! $this->checkUserDeploySlotEquip($user->uid)) {
+            $this->initSlotEquip($user->uid);
+        }
         if ($user) {
             return response()->json([
                 'message' => __('註冊並登入成功'),
@@ -544,20 +560,19 @@ class AuthController extends Controller
         $formattedInfoResult     = $this->formatUserInfo($otherUser);
 
         // 創建surgame
-        if (empty(UserSurGameInfo::where('uid', $user->uid)->first())) {
-            UserSurGameInfo::createInitialData($user->uid);
+        if (empty(UserSurGameInfo::where('uid', $currentUser->uid)->first())) {
+            UserSurGameInfo::createInitialData($currentUser->uid);
         }
 
         // 檢查是否有主角Surgame資料
-        if (! $this->checkUserCharacter($user->uid)) {
-            $this->createMainCharacter($user->uid);
+        if (! $this->checkUserCharacter($currentUser->uid)) {
+            $this->createMainCharacter($currentUser->uid);
         }
 
         // 檢查是否有陣位資料
-        if (! $this->checkUserDeploySlot($user->uid)) {
-            dd('sad');
-            $this->createMainCharacterDeploySlot($user->uid);
-            $this->initSlotEquip($user->uid);
+        if (! $this->checkUserDeploySlot($currentUser->uid)) {
+            $this->createMainCharacterDeploySlot($currentUser->uid);
+            $this->initSlotEquip($currentUser->uid);
         }
 
         return response()->json(['data' => $formattedInfoResult], 200);
@@ -1329,12 +1344,12 @@ class AuthController extends Controller
             return response()->json(ErrorService::errorCode(__METHOD__, 'SYSTEM:0003'), 500);
         }
     }
+
     public function initSlotEquip($uid)
     {
-        $svc = new DeploySlotService();
+        $svc = app(DeploySlotService::class);
         return $svc->initUserSlotEquipment($uid);
     }
-
     // 檢查是否有主角陣位
     public function checkUserCharacter($uid)
     {
@@ -1345,5 +1360,11 @@ class AuthController extends Controller
     public function checkUserDeploySlot($uid)
     {
         return CharacterDeploySlot::where('uid', $uid)->exists();
+    }
+
+    // 檢查陣位精煉資料(應該有5*6=30筆才對)
+    public function checkUserDeploySlotEquip($uid)
+    {
+        return UserSlotEquipment::where('uid', $uid)->count() >= 30;
     }
 }

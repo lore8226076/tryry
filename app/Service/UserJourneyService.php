@@ -33,7 +33,7 @@ class UserJourneyService
 
             if (! $record->exists) {
                 // 第一次建立時補上預設值
-                $record->current_journey_id = 0;
+                $record->current_journey_id = 1;
                 $record->current_wave = 0;
                 $record->total_stars = 0;
             }
@@ -54,17 +54,17 @@ class UserJourneyService
      *
      * @param  int  $uid  玩家 UID
      */
-    public function getCurrentProgress(int $uid): array
+    public function getCurrentProgress(int $uid): array|object
     {
         $record = UserJourneyRecord::where('uid', $uid)->first();
 
         if (! $record) {
-            return [];
+            return (object) [];
         }
 
         return [
-            'chapter_id' => (int) $record->current_journey_id,
-            'wave' => (int) $record->current_wave,
+            'chapter_id' => (int) $record->current_journey_id ?? 1,
+            'wave' => (int) $record->current_wave ?? 0,
         ];
     }
 
@@ -150,72 +150,150 @@ class UserJourneyService
     }
 
     /**
-     * 領取指定的章節獎勵
+     * 領取符合條件的章節獎勵
      *
      * @param  int  $uid  玩家 UID
-     * @param  int  $rewardId  章節獎勵 ID
+     * @param  int  $chapterId  章節編號（允許 unique_id 或主鍵）
      */
-    public function claimChapterReward(int $uid, int $rewardId): array
+    public function claimChapterReward(int $uid, int $chapterId): array
     {
-        $reward = GddbSurgameJourneyReward::find($rewardId);
-
-        if (! $reward) {
-            throw new \RuntimeException('JourneyReward:0001');
-        }
-
-        $journey = GddbSurgameJourney::find($reward->journey_id);
+        $journey = $this->findJourneyByIdentifier($chapterId);
 
         if (! $journey) {
             throw new \RuntimeException('JourneyReward:0001');
         }
 
-        $record = UserJourneyRecord::where('uid', $uid)->first();
+        return DB::transaction(function () use ($uid, $journey) {
+            $record = UserJourneyRecord::where('uid', $uid)->lockForUpdate()->first();
 
-        if (! $record) {
-            throw new \RuntimeException('JourneyReward:0003');
-        }
+            if (! $record) {
+                throw new \RuntimeException('JourneyReward:0003');
+            }
 
-        // 1. 玩家還沒到這個章節
-        if ((int) $record->current_journey_id < (int) $journey->unique_id) {
-            throw new \RuntimeException('JourneyReward:0002');
-        }
+            $playerChapterId = (int) $record->current_journey_id;
+            $targetChapterId = (int) $journey->unique_id;
 
-        // 2. 玩家正好在這個章節，但 wave 還不夠
-        if ((int) $record->current_journey_id === (int) $journey->unique_id
-           && (int) $record->current_wave < (int) $reward->wave) {
-            throw new \RuntimeException('JourneyReward:0002');
-        }
+            if ($playerChapterId < $targetChapterId) {
+                throw new \RuntimeException('JourneyReward:0002');
+            }
 
-        return DB::transaction(function () use ($uid, $reward, $journey) {
-            $claimed = UserJourneyRewardMap::lockForUpdate()
+            $availableWave = (int) $record->current_wave;
+            $isCurrentChapter = $playerChapterId === $targetChapterId;
+
+            $rewardCandidates = GddbSurgameJourneyReward::query()
+                ->where('journey_id', $journey->id)
+                ->when($isCurrentChapter, function ($query) use ($availableWave) {
+                    $query->where('wave', '<=', $availableWave);
+                })
+                ->orderBy('wave')
+                ->get();
+
+            if ($rewardCandidates->isEmpty()) {
+                throw new \RuntimeException('JourneyReward:0002');
+            }
+
+            $claimedMap = UserJourneyRewardMap::query()
                 ->where('uid', $uid)
-                ->where('reward_id', $reward->id)
-                ->first();
+                ->whereIn('reward_id', $rewardCandidates->pluck('id'))
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('reward_id');
 
-            if ($claimed && (int) $claimed->is_received === 1) {
+            $claimableRewards = [];
+
+            foreach ($rewardCandidates as $candidate) {
+                $claimed = $claimedMap->get($candidate->id);
+
+                if (! $claimed || (int) $claimed->is_received !== 1) {
+                    $claimableRewards[] = $candidate;
+                }
+            }
+
+            if (empty($claimableRewards)) {
                 throw new \RuntimeException('JourneyReward:0004');
             }
 
-            $rewards = $this->formatRewards($reward->rewards);
-            $deliveredList = $this->grantRewardsToUser($uid, $rewards, '冒險章節獎勵領取');
+            $aggregatedRewards = [];
+            $claimedWaves = [];
 
-            UserJourneyRewardMap::updateOrCreate(
-                [
-                    'uid' => $uid,
-                    'reward_id' => (int) $reward->id,
-                ],
-                [
-                    'is_received' => 1,
-                ]
-            );
+            foreach ($claimableRewards as $reward) {
+                $claimedWaves[] = (int) $reward->wave;
+
+                foreach ($this->formatRewards($reward->rewards) as $item) {
+                    $itemId = (int) ($item['item_id'] ?? 0);
+                    $amount = (int) ($item['amount'] ?? 0);
+
+                    if ($itemId <= 0 || $amount <= 0) {
+                        continue;
+                    }
+
+                    if (! isset($aggregatedRewards[$itemId])) {
+                        $aggregatedRewards[$itemId] = 0;
+                    }
+
+                    $aggregatedRewards[$itemId] += $amount;
+                }
+            }
+
+            $finalRewards = [];
+
+            foreach ($aggregatedRewards as $itemId => $amount) {
+                $finalRewards[] = [
+                    'item_id' => (int) $itemId,
+                    'amount' => (int) $amount,
+                ];
+            }
+
+            $deliveredList = $this->grantRewardsToUser($uid, $finalRewards, '冒險章節獎勵領取');
+
+            foreach ($claimableRewards as $reward) {
+                UserJourneyRewardMap::updateOrCreate(
+                    [
+                        'uid' => $uid,
+                        'reward_id' => (int) $reward->id,
+                    ],
+                    [
+                        'is_received' => 1,
+                    ]
+                );
+            }
+
+            sort($claimedWaves);
 
             return [
-                // 'reward_id'     => (int) $reward->id,
                 'chapter_id' => (int) $journey->unique_id,
-                'wave' => (int) $reward->wave,
                 'reward_status' => 1,
+                'claimed_wave' => array_values(array_unique($claimedWaves)),
                 'rewards' => $deliveredList,
             ];
+        });
+    }
+
+    /**
+     * 玩家道具取得
+     */
+    public function claimReward($user, $rewards = [])
+    {
+        return DB::transaction(function () use ($user, $rewards) {
+            if (empty($rewards)) {
+                return;
+            }
+            foreach ($rewards as $reward) {
+                $itemId = $reward['item_id'];
+                $amount = $reward['qty'];
+                $result = UserItemService::addItem(
+                    UserItemLogs::TYPE_SYSTEM,
+                    $user->id,
+                    $user->uid,
+                    $itemId,
+                    $amount,
+                    1,
+                    '主線關卡掉落獎勵領取'
+                );
+                if (($result['success'] ?? 0) !== 1) {
+                    throw new \RuntimeException('UserItem:0002');
+                }
+            }
         });
     }
 
@@ -479,5 +557,18 @@ class UserJourneyService
 
         return $finalRewards;
 
+    }
+
+    /**
+     * 重置玩家章節進度與獎勵狀態
+     *
+     * @param  int  $uid  玩家 UID
+     */
+    public function resetJourneyRewards(int $uid): void
+    {
+        DB::transaction(function () use ($uid) {
+            UserJourneyRecord::where('uid', $uid)->delete();
+            UserJourneyRewardMap::where('uid', $uid)->delete();
+        });
     }
 }

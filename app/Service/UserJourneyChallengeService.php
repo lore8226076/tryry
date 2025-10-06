@@ -86,6 +86,7 @@ class UserJourneyChallengeService
             ];
             $totalStars += array_sum($flags);
         }
+        if (empty($chapterInfos)) $chapterInfos = (object) $chapterInfos;
 
         return [
             'stars_total' => $totalStars,
@@ -106,7 +107,7 @@ class UserJourneyChallengeService
             ->get();
 
         if ($rewardList->isEmpty()) {
-            return [];
+            return (object)[];
         }
 
         $claimedMap = UserJourneyStarRewardMap::query()
@@ -122,18 +123,10 @@ class UserJourneyChallengeService
         foreach ($rewardList as $reward) {
             $uniqueId = (int) $reward->unique_id;
             $isClaimed = $claimedMap[$uniqueId] ?? 0;
-
-            $status = $totalStars >= (int) $reward->star_count ? 1 : 0;
-
-            if ($isClaimed) {
-                $status = 2; // 2 代表已領取獎勵
-            }
-
             $rewards[] = [
                 'unique_id' => $uniqueId,
                 'type' => $reward->type,
                 'star_count' => (int) $reward->star_count,
-                'reward_status' => $status,
                 'is_claimed' => (int) $isClaimed,
                 'rewards' => $this->journeyService->formatRewards($reward->rewards),
             ];
@@ -213,6 +206,18 @@ class UserJourneyChallengeService
             'is_received' => 1,
         ]);
 
+    }
+
+    /**
+     * 重置玩家星級挑戰進度與獎勵狀態
+     */
+    public function resetChallengeProgress(int $uid): void
+    {
+        DB::transaction(function () use ($uid) {
+            UserJourneyStarChallenge::where('uid', $uid)->delete();
+            UserJourneyStarRewardMap::where('uid', $uid)->delete();
+            $this->journeyService->syncTotalStars($uid, 0);
+        });
     }
 
     /**

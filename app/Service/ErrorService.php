@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Service;
 
 class ErrorService extends AppService
@@ -6,10 +7,10 @@ class ErrorService extends AppService
     public static function returnData($from, $error, $message, $field)
     {
         return [
-            'from'    => $from,
-            'error'   => $error,
+            'from' => $from,
+            'error' => $error,
             'message' => $message,
-            'field'   => $field,
+            'field' => $field,
         ];
     }
 
@@ -179,10 +180,10 @@ class ErrorService extends AppService
                 return self::returnData($from, $error, __('額外道具不足'), 'extra_item_not_enough');
                 break;
             case 'UserItem:0005':
-                return self::returnData($from, $error, __('相關資訊不足'), 'item_info_not_enough');
+                return self::returnData($from, $error, __('使用者無相關道具'), 'item_info_not_enough');
                 break;
 
-            // 付款錯誤資訊
+                // 付款錯誤資訊
             case 'UserPayOrder:0001':
                 return self::returnData($from, $error, __('訂單已經處理過!'), 'order_id');
                 break;
@@ -199,7 +200,7 @@ class ErrorService extends AppService
                 return self::returnData($from, $error, __('google收據格式錯誤'), 'purchase_token');
                 break;
 
-            // 任務系統錯誤資訊
+                // 任務系統錯誤資訊
             case 'TASK:0001':
                 return self::returnData($from, $error, __('任務不存在'), 'task_not_found');
                 break;
@@ -228,7 +229,7 @@ class ErrorService extends AppService
                 return self::returnData($from, $error, __('任務類型錯誤'), 'task_type');
                 break;
 
-            // 追蹤錯誤資訊
+                // 追蹤錯誤資訊
             case 'FOLLOW:0001':
                 return self::returnData($from, $error, __('不能追蹤自己'), 'follow_self');
                 break;
@@ -251,7 +252,7 @@ class ErrorService extends AppService
                 return self::returnData($from, $error, __('好友搜尋字數限制為2~8個字'), 'search_length');
                 break;
 
-            // 黑名單功能
+                // 黑名單功能
             case 'BLOCK:0001':
                 return self::returnData($from, $error, __('無法封鎖自己'), 'block_self');
                 break;
@@ -270,12 +271,12 @@ class ErrorService extends AppService
             case 'BLOCK:0006':
                 return self::returnData($from, $error, __('封鎖使用者已存在'), 'block_user_already_exists');
                 break;
-            // 你被對方封鎖
+                // 你被對方封鎖
             case 'BLOCK:0007':
                 return self::returnData($from, $error, __('對方已封鎖你'), 'blocked_by_user');
                 break;
 
-            // 信件系統錯誤資訊
+                // 信件系統錯誤資訊
             case 'INBOX:0001':
                 return self::returnData($from, $error, __('信件不存在'), 'inbox_not_found');
                 break;
@@ -301,7 +302,7 @@ class ErrorService extends AppService
                 return self::returnData($from, $error, __('信件刪除失敗'), 'inbox_delete_failed');
                 break;
 
-            // 寵物系統錯誤資訊
+                // 寵物系統錯誤資訊
             case 'PET:0001':
                 return self::returnData($from, $error, __('寵物不存在'), 'pet_not_found');
                 break;
@@ -312,7 +313,7 @@ class ErrorService extends AppService
                 return self::returnData($from, $error, __('寵物更新失敗'), 'pet_update_failed');
                 break;
 
-            // 體力系統錯誤資訊
+                // 體力系統錯誤資訊
             case 'STAMINA:0001':
                 return self::returnData($from, $error, __('體力不足'), 'stamina_not_enough');
                 break;
@@ -323,7 +324,7 @@ class ErrorService extends AppService
                 return self::returnData($from, $error, __('體力道具轉換失敗'), 'stamina_convert_failed');
                 break;
 
-            // 材料關卡錯誤資訊
+                // 材料關卡錯誤資訊
             case 'STAGE:0001':
                 return self::returnData($from, $error, __('關卡不存在'), 'stage_not_found');
                 break;
@@ -340,7 +341,7 @@ class ErrorService extends AppService
                 return self::returnData($from, $error, __('尚未通過關卡無法掃蕩'), 'cant_sweep');
                 break;
 
-            // 陣位相關錯誤
+                // 陣位相關錯誤
             case 'DeploySlot:0001':
                 return self::returnData($from, $error, __('欄位型態錯誤'), 'column_type_error');
                 break;
@@ -366,12 +367,12 @@ class ErrorService extends AppService
                 return self::returnData($from, $error, __('陣位等級不能超過上限'), 'slot_level_max');
                 break;
 
-            // 角色相關
+                // 角色相關
             case 'CHARACTER:0001':
                 return self::returnData($from, $error, __('尚未擁有或無此角色'), 'find_character_fail');
                 break;
 
-            // 巡邏相關
+                // 巡邏相關
             case 'PATROL:0001':
                 return self::returnData($from, $error, __('巡邏時間未滿，無法領取獎勵。'), 'claim_patrol_time_short');
                 break;
@@ -379,7 +380,7 @@ class ErrorService extends AppService
                 return self::returnData($from, $error, __('尚未滿足領取條件或無法領取巡邏獎勵'), 'claim_patrol_fail');
                 break;
 
-            // 角色升級相關
+                // 角色升級相關
             case 'PlayerLevelUp:0001':
                 return self::returnData($from, $error, __('主角升級資訊不存在'), 'player_level_up_not_found');
                 break;
@@ -390,7 +391,7 @@ class ErrorService extends AppService
                 return self::returnData($from, $error, __('主角升級失敗，請檢查相關資料'), 'main_character_level_up_failed');
                 break;
 
-            // 角色星級相關
+                // 角色星級相關
             case 'CharacterRank:0001':
                 return self::returnData($from, $error, __('角色已達最高星級'), 'character_max_star_level');
                 break;
@@ -401,7 +402,7 @@ class ErrorService extends AppService
                 return self::returnData($from, $error, __('角色星級材料不足'), 'character_star_material_not_enough');
                 break;
 
-            // 冒險章節相關
+                // 冒險章節相關
             case 'JOURNEY:0001':
                 return self::returnData($from, $error, __('章節參數錯誤'), 'journey_chapter');
                 break;
@@ -414,7 +415,6 @@ class ErrorService extends AppService
             case 'JOURNEY:0004':
                 return self::returnData($from, $error, __('尚有前置獎勵未領取，請依序領取。'), 'journey_chapter_not_found');
                 break;
-
 
             case 'JourneyReward:0001':
                 return self::returnData($from, $error, __('章節獎勵不存在'), 'journey_reward_not_found');
@@ -432,7 +432,7 @@ class ErrorService extends AppService
                 return self::returnData($from, $error, __('章節獎勵參數錯誤'), 'journey_reward_param');
                 break;
 
-            // 星級挑戰相關
+                // 星級挑戰相關
             case 'StarChallenge:0001':
                 return self::returnData($from, $error, __('星級資料格式錯誤'), 'star_challenge_payload');
                 break;
@@ -452,8 +452,7 @@ class ErrorService extends AppService
                 return self::returnData($from, $error, __('星級獎勵參數錯誤'), 'star_reward_param');
                 break;
 
-
-            // 角色軍階相關
+                // 角色軍階相關
             case 'GRADE:0001':
                 return self::returnData($from, $error, __('軍階資料錯誤'), 'character_grade_data_error');
             case 'GRADE:0002':
@@ -463,7 +462,7 @@ class ErrorService extends AppService
             case 'GRADE:0004':
                 return self::returnData($from, $error, __('軍階任務接取失敗'), 'character_grade_mission_failed');
 
-            // 角色背包功能
+                // 角色背包功能
             case 'INVENTORY:0001':
                 return self::returnData($from, $error, __('背包資料錯誤'), 'inventory_data_error');
                 break;
@@ -491,12 +490,12 @@ class ErrorService extends AppService
                 return self::returnData($from, $error, __('使用道具數量與內容物資料數量不相符'), 'item_amount_mismatch');
                 break;
 
-            // 維護系統錯誤資訊
+                // 維護系統錯誤資訊
             case 'MAINTENANCE:0001':
                 return self::returnData($from, $error, __('資料取得錯誤'), 'maintenance_data_error');
                 break;
 
-            // 裝備系統錯誤資訊
+                // 裝備系統錯誤資訊
             case 'EQUIPMENT:0001':
                 return self::returnData($from, $error, __('裝備不存在'), 'equipment_not_found');
                 break;
@@ -534,7 +533,53 @@ class ErrorService extends AppService
                 return self::returnData($from, $error, __('裝備強化失敗'), 'equipment_enhance_failed');
                 break;
 
-            // 天賦系統錯誤資訊
+            // 寶物系統錯誤資訊
+            case 'TREASURE:0001':
+                return self::returnData($from, $error, __('寶物不存在'), 'treasure_not_found');
+                break;
+            case 'TREASURE:0002':
+                return self::returnData($from, $error, __('寶物抽取失敗'), 'treasure_draw_failed');
+                break;
+            case 'TREASURE:0003':
+                return self::returnData($from, $error, __('寶物抽取次數不足'), 'treasure_draw_not_enough');
+                break;
+            case 'TREASURE:0004':
+                return self::returnData($from, $error, __('寶物合成缺少材料或資料不正確'), 'treasure_combine_data_error');
+                break;
+            case 'TREASURE:0005':
+                return self::returnData($from, $error, __('寶物合成失敗'), 'treasure_combine_failed');
+                break;
+            case 'TREASURE:0006':
+                return self::returnData($from, $error, __('一鍵合成失敗'), 'treasure_combine_all_failed');
+                break;
+            case 'TREASURE:0007':
+                return self::returnData($from, $error, __('寶物退回失敗'), 'treasure_return_failed');
+                break;
+            case 'TREASURE:0008':
+                return self::returnData($from, $error, __('所選寶物不屬於該用戶'), 'treasure_not_user');
+                break;
+            case 'TREASURE:0009':
+                return self::returnData($from, $error, __('寶物數量不足'), 'treasure_not_enough');
+                break;
+            case 'TREASURE:0010':
+                return self::returnData($from, $error, __('該寶物不可合成'), 'treasure_not_combinable');
+                break;
+            case 'TREASURE:0011':
+                return self::returnData($from, $error, __('該寶物不可退回'), 'treasure_not_returnable');
+                break;
+            case 'TREASURE:0012':
+                return self::returnData($from, $error, __('寶物狀態異常，無法操作'), 'treasure_invalid_status');
+                break;
+            case 'TREASURE:0013':
+                return self::returnData($from, $error, __('該材料不可用於此次合成'), 'treasure_material_not_usable');
+            case 'TREASURE:0014':
+                return self::returnData($from, $error, __('寶物等級已達最高級'), 'treasure_max_level');
+                break;
+            case 'TREASURE:0015':
+                return self::returnData($from, $error, __('寶物合成數量錯誤'), 'treasure_combine_count_invalid');
+
+
+                // 天賦系統錯誤資訊
             case 'TALENT:0001':
                 return self::returnData($from, $error, __('抽取天賦失敗，請確認是否有可用的天賦獎池'), 'draw_talent_failed');
                 break;
@@ -558,7 +603,7 @@ class ErrorService extends AppService
                 break;
 
             default:
-                return self::returnData($from, $error, __('不明錯誤' . $from . $error), 'other');
+                return self::returnData($from, $error, __('不明錯誤'.$from.$error), 'other');
                 break;
         }
 

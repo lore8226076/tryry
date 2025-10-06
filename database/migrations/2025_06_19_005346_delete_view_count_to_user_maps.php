@@ -11,9 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('user_maps', function (Blueprint $table) {
-            $table->dropColumn('view_count');
-        });
+        // 如果有此欄位才移除
+        if (Schema::hasColumn('user_maps', 'view_count')) {
+            Schema::table('user_maps', function (Blueprint $table) {
+                $table->dropColumn('view_count');
+            });
+        }
     }
 
     /**

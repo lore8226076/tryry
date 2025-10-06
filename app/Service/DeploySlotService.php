@@ -72,8 +72,8 @@ class DeploySlotService
                 $userEquipment->uid           = $uid;
                 $userEquipment->slot_id       = $slotId;
                 $userEquipment->position      = $position;
-                $userEquipment->refine_level  = 1;
                 $userEquipment->enhance_level = 1;
+                $userEquipment->refine_level  = 0;
                 return $userEquipment->save();
             } catch (\Exception $e) {
                 Log::error('[initUserSlotEquipment] 初始化陣位裝備與精鍊等級失敗', [
@@ -522,30 +522,34 @@ class DeploySlotService
     }
 
     // 陣位(裝備/精煉) 回傳設定 (單陣位 or 多陣位)
-    public function formatShowEnhanceData($data, $type = 'single', $refineTimes = null)
+    public function formatShowEnhanceData($data, $type = 'single', $refineTimes = null, $isRefine = false)
     {
         $result = [];
         if ($type === 'single') {
             $result = [
                 'deploy_index'  => $data->deploySlot->position,
                 'equip_index'   => $data->position,
-                'refine_level'  => $data->refine_level,
                 'enhance_level' => $data->enhance_level,
+                'refine_level'  => $data->refine_level,
             ];
             if ($refineTimes !== null) {
-                $result['level_result'] = [
+                $result['refine_progress'] = [
                     'refine_times' => $refineTimes['refine_times'] ?? 0,
                     'leveled'      => $refineTimes['leveled'] ?? 0,
                     'success_rate' => $refineTimes['success_rate'] ?? 0,
                 ];
             }
         } elseif ($type === 'multiple') {
+            if ($isRefine) {
+                // 多陣位精煉回傳時，依照陣位順序排序
+                $data = $data->sortBy(fn($item) => $item->deploySlot->position);
+            }
             foreach ($data as $item) {
                 $result[] = [
                     'deploy_index'  => $item->deploySlot->position,
                     'equip_index'   => $item->position,
-                    'refine_level'  => $item->refine_level,
                     'enhance_level' => $item->enhance_level,
+                    'refine_level'  => $item->refine_level,
                 ];
             }
         }

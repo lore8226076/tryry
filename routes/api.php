@@ -348,20 +348,31 @@ Route::group(['middleware' => 'api'], function ($router) {
             Route::group(['prefix' => 'journey'], function () {
                 Route::get('/progress', [App\Http\Controllers\Api\CharacterJourneyController::class, 'progress']);
                 Route::post('/update', [App\Http\Controllers\Api\CharacterJourneyController::class, 'update']);
+                // 主線獎勵
+                Route::post('/main_reward/claim', [App\Http\Controllers\Api\CharacterJourneyController::class, 'claimMainReward']);
+                // 扣除體力
+                Route::post('/deduct', [App\Http\Controllers\Api\CharacterJourneyController::class, 'deduct']);
 
                 // 獎勵
                 Route::get('/rewards_status', [App\Http\Controllers\Api\CharacterJourneyController::class, 'rewards']);
                 Route::post('/reward/claim', [App\Http\Controllers\Api\CharacterJourneyController::class, 'claimReward']);
+
+                // 重置章節進度
+                Route::post('/reset_progress', [App\Http\Controllers\Api\CharacterJourneyController::class, 'resetProgress']);
             });
             // 星級挑戰
             Route::group(['prefix' => 'star_challenge'], function () {
                 Route::get('/progress', [App\Http\Controllers\Api\CharacterStarChallengeController::class, 'progress']);
                 Route::post('/update', [App\Http\Controllers\Api\CharacterStarChallengeController::class, 'update']);
+                // 扣除體力
+                Route::post('/deduct', [App\Http\Controllers\Api\CharacterStarChallengeController::class, 'deduct']);
 
                 // 獎勵
                 Route::get('/rewards_status', [App\Http\Controllers\Api\CharacterStarChallengeController::class, 'rewards']);
                 Route::post('/reward/claim', [App\Http\Controllers\Api\CharacterStarChallengeController::class, 'claimReward']);
 
+                // 重置挑戰進度
+                Route::post('/reset_progress', [App\Http\Controllers\Api\CharacterStarChallengeController::class, 'resetProgress']);
             });
             // 陣位
             Route::group(['prefix' => 'deploy_slot'], function () {
@@ -432,6 +443,14 @@ Route::group(['middleware' => 'api'], function ($router) {
             Route::post('/draw', [App\Http\Controllers\Api\TalentController::class, 'drawTalent']);
             // 建立天賦獎池
             Route::post('/create_pool', [App\Http\Controllers\Api\TalentController::class, 'createTalentPool']);
+        });
+
+        // 寶物系統
+        Route::group(['prefix' => 'treasure'], function () {
+            Route::get('/', [App\Http\Controllers\Api\TreasureController::class, 'test']);
+            Route::post('/obtain',[App\Http\Controllers\Api\TreasureController::class, 'obtain']);
+            Route::post('/fuse',[App\Http\Controllers\Api\TreasureController::class, 'fuse']);
+            Route::post('/reset',[App\Http\Controllers\Api\TreasureController::class, 'reset']);
         });
 
     });
