@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Service;
 
 use App\Models\GddbItems;
@@ -102,6 +103,9 @@ class UserItemService
      * 73 => __('裝備精煉'),
      * 80 => __('禮包道具'),
      * 81 => __('寶箱道具'),
+     * 90 => __('獲得寶物'),
+     * 91 => __('合成寶物'),
+     * 92 => __('寶物分解'),
      * user_id
      * uid
      * item_id
@@ -111,7 +115,7 @@ class UserItemService
      * user_mall_order_id 遊戲內購買訂單ID
      * user_pay_order_id 金流儲值購買訂單ID
      **/
-    public static function addItem($type, $user_id, $uid, $item_id, $qty, $is_lock = 1, $memo, $user_mall_order_id = null, $user_pay_order_id = null, $user_gacha_order_id = null)
+    public static function addItem($type, $user_id, $uid, $item_id, $qty, $is_lock, $memo, $user_mall_order_id = null, $user_pay_order_id = null, $user_gacha_order_id = null)
     {
         $item = UserItemService::getItem($item_id);
         \Log::info('新增道具', ['data' => $item, 'item_id' => $item_id]);
@@ -121,26 +125,29 @@ class UserItemService
             if (empty($item['region']) && $item['type'] != 'Currency' && $item['type'] != 'TaskPoint') {
                 \Log::error('道具region錯誤', [
                     'item_id' => $item_id,
-                    'region'  => $item['region'],
-                    'type'    => $item['type'],
+                    'region' => $item['region'],
+                    'type' => $item['type'],
                 ]);
+
                 return ['success' => 0, 'error_code' => 'MallOrder:0005'];
             }
 
             if (empty($item['category'])) {
                 \Log::error('道具category錯誤', [
-                    'item_id'  => $item_id,
+                    'item_id' => $item_id,
                     'category' => $item['category'],
-                    'type'     => $item['type'],
+                    'type' => $item['type'],
                 ]);
+
                 return ['success' => 0, 'error_code' => 'MallOrder:0006'];
             }
 
             if (empty($item['type'])) {
                 \Log::error('道具type錯誤', [
                     'item_id' => $item_id,
-                    'type'    => $item['type'],
+                    'type' => $item['type'],
                 ]);
+
                 return ['success' => 0, 'error_code' => 'MallOrder:0007'];
             }
         }
@@ -150,8 +157,9 @@ class UserItemService
             if ($qty > 1) {
                 \Log::error('道具qty錯誤', [
                     'item_id' => $item_id,
-                    'qty'     => $qty,
+                    'qty' => $qty,
                 ]);
+
                 return ['success' => 0, 'error_code' => 'MallOrder:0008'];
             }
             if ($userItem) {
@@ -159,10 +167,10 @@ class UserItemService
                 $convertItem = self::convertItem($item_id, $qty, $user_id);
                 if ($convertItem['success'] == 1) {
                     return [
-                        'success'           => 1,
-                        'error_code'        => '',
-                        'item_id'           => $convertItem['item_id'],
-                        'qty'               => $convertItem['qty'],
+                        'success' => 1,
+                        'error_code' => '',
+                        'item_id' => $convertItem['item_id'],
+                        'qty' => $convertItem['qty'],
                         'been_convert_item' => $item_id,
                     ];
                 }
@@ -171,6 +179,7 @@ class UserItemService
                     'item_id' => $item_id,
                     'user_id' => $user_id,
                 ]);
+
                 return ['success' => 0, 'error_code' => 'MallOrder:0012'];
             }
         }
@@ -181,16 +190,16 @@ class UserItemService
                 $user_mall_order_id, $user_pay_order_id, $user_gacha_order_id, $item, $userItem
             ) {
                 if (empty($userItem)) {
-                    $userItem             = new UserItems;
-                    $userItem->user_id    = $user_id;
-                    $userItem->uid        = $uid;
-                    $userItem->item_id    = $item_id;
+                    $userItem = new UserItems;
+                    $userItem->user_id = $user_id;
+                    $userItem->uid = $uid;
+                    $userItem->item_id = $item_id;
                     $userItem->manager_id = $item['manager_id'];
-                    $userItem->is_lock    = $is_lock;
-                    $userItem->region     = $item['region'];
-                    $userItem->category   = $item['category'];
-                    $userItem->type       = $item['type'];
-                    $userItem->qty        = 0;
+                    $userItem->is_lock = $is_lock;
+                    $userItem->region = $item['region'];
+                    $userItem->category = $item['category'];
+                    $userItem->type = $item['type'];
+                    $userItem->qty = 0;
                     $userItem->save();
                 }
 
@@ -220,10 +229,11 @@ class UserItemService
             });
         } catch (\Exception $e) {
             \Log::error("使用者道具新增失敗: {$e->getMessage()}", [
-                'file'  => $e->getFile(),
-                'line'  => $e->getLine(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
                 'trace' => $e->getTraceAsString(),
             ]);
+
             return ['success' => 0, 'error_code' => 'other'];
         }
     }
@@ -243,8 +253,8 @@ class UserItemService
         $user = Users::where('id', $user_id)->first();
 
         // 用rarity 轉成取得道具數量
-        $rarity  = $item['rarity'];
-        $qty     = $avatar_to_ticket[$rarity];
+        $rarity = $item['rarity'];
+        $qty = $avatar_to_ticket[$rarity];
         $item_id = 102;
 
         // 直接發獎勵
@@ -254,7 +264,7 @@ class UserItemService
     }
 
     /** 移除道具 */
-    public static function removeItem($type, $user_id, $uid, $item_id, $qty, $is_lock = 1, $memo, $user_mall_order_id = null, $user_pay_order_id = null, $user_gacha_order_id = null)
+    public static function removeItem($type, $user_id, $uid, $item_id, $qty, $is_lock, $memo, $user_mall_order_id = null, $user_pay_order_id = null, $user_gacha_order_id = null)
     {
         $item = self::getItem($item_id);
         \Log::info('移除道具', ['data' => $item, 'item_id' => $item_id]);
@@ -287,16 +297,17 @@ class UserItemService
                 'item_id' => $item_id,
                 'user_id' => $user_id,
             ]);
+
             return ['success' => 0, 'error_code' => 'MallOrder:0013']; // 找不到要扣除的道具
         }
-
         if ($userItem->qty < $qty) {
             \Log::error('移除道具數量不足', [
-                'item_id'      => $item_id,
-                'user_id'      => $user_id,
-                'current_qty'  => $userItem->qty,
+                'item_id' => $item_id,
+                'user_id' => $user_id,
+                'current_qty' => $userItem->qty,
                 'required_qty' => $qty,
             ]);
+
             return ['success' => 0, 'error_code' => 'MallOrder:0010']; // 數量不足無法扣除
         }
 
@@ -340,10 +351,11 @@ class UserItemService
         } catch (\Exception $e) {
             \Log::error('使用者移除道具失敗', [
                 'message' => $e->getMessage(),
-                'file'    => $e->getFile(),
-                'line'    => $e->getLine(),
-                'trace'   => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
             ]);
+
             return ['success' => 0, 'error_code' => $e->getMessage()];
         }
 
@@ -365,14 +377,14 @@ class UserItemService
                 $existingItems = UserItems::whereIn('user_id', $userIds)
                     ->whereIn('item_id', $itemIds)
                     ->get()
-                    ->keyBy(fn($item) => $item->user_id . '_' . $item->item_id);
+                    ->keyBy(fn ($item) => $item->user_id.'_'.$item->item_id);
 
-                $newItems     = [];
+                $newItems = [];
                 $updatedItems = [];
-                $itemLogs     = [];
+                $itemLogs = [];
 
                 foreach ($items as $item) {
-                    $key = $item['user_id'] . '_' . $item['item_id'];
+                    $key = $item['user_id'].'_'.$item['item_id'];
 
                     if (isset($existingItems[$key])) {
                         $userItem = $existingItems[$key];
@@ -385,57 +397,57 @@ class UserItemService
                         $userItem->qty += $item['qty'];
 
                         $updatedItems[] = [
-                            'id'         => $userItem->id,
-                            'user_id'    => $userItem->user_id,
-                            'qty'        => $userItem->qty,
+                            'id' => $userItem->id,
+                            'user_id' => $userItem->user_id,
+                            'qty' => $userItem->qty,
                             'updated_at' => now(),
                         ];
 
                         $user_item_id = $userItem->id;
-                        $manager_id   = $userItem->manager_id;
+                        $manager_id = $userItem->manager_id;
                     } else {
                         // 取得道具資料
                         $itemData = UserItemService::getItem($item['item_id']);
                         if (isset($itemData['error'])) {
-                            \Log::debug('扭蛋取資料失敗:' . json_encode($item['item_id']));
+                            \Log::debug('扭蛋取資料失敗:'.json_encode($item['item_id']));
                             throw new \Exception('GachaOrder:0006');
                         }
 
                         $newItems[] = [
-                            'user_id'    => $item['user_id'],
-                            'uid'        => $item['uid'],
-                            'item_id'    => $item['item_id'],
+                            'user_id' => $item['user_id'],
+                            'uid' => $item['uid'],
+                            'item_id' => $item['item_id'],
                             'manager_id' => $itemData['manager_id'],
-                            'is_lock'    => 1,
-                            'region'     => $itemData['region'],
-                            'category'   => $itemData['category'],
-                            'type'       => $itemData['type'],
-                            'qty'        => $item['qty'],
+                            'is_lock' => 1,
+                            'region' => $itemData['region'],
+                            'category' => $itemData['category'],
+                            'type' => $itemData['type'],
+                            'qty' => $item['qty'],
                             'created_at' => now(),
                             'updated_at' => now(),
                         ];
 
                         $user_item_id = 0;
-                        $manager_id   = $itemData['manager_id'];
+                        $manager_id = $itemData['manager_id'];
                         $original_qty = 0;
                     }
 
                     // 記錄變更日誌
                     $itemLogs[] = [
-                        'type'                => $item['type'],
-                        'user_id'             => $item['user_id'],
-                        'user_item_id'        => $user_item_id,
-                        'item_id'             => $item['item_id'],
-                        'manager_id'          => $manager_id,
-                        'original_qty'        => $original_qty,
-                        'qty'                 => $item['qty'],
-                        'after_qty'           => $original_qty + $item['qty'],
-                        'memo'                => $item['memo'],
-                        'user_mall_order_id'  => $item['user_mall_order_id'] ?? null,
-                        'user_pay_order_id'   => $item['user_pay_order_id'] ?? null,
+                        'type' => $item['type'],
+                        'user_id' => $item['user_id'],
+                        'user_item_id' => $user_item_id,
+                        'item_id' => $item['item_id'],
+                        'manager_id' => $manager_id,
+                        'original_qty' => $original_qty,
+                        'qty' => $item['qty'],
+                        'after_qty' => $original_qty + $item['qty'],
+                        'memo' => $item['memo'],
+                        'user_mall_order_id' => $item['user_mall_order_id'] ?? null,
+                        'user_pay_order_id' => $item['user_pay_order_id'] ?? null,
                         'user_gacha_order_id' => $item['user_gacha_order_id'] ?? null,
-                        'created_at'          => now(),
-                        'updated_at'          => now(),
+                        'created_at' => now(),
+                        'updated_at' => now(),
                     ];
                 }
 
@@ -446,12 +458,12 @@ class UserItemService
                     $existingItems = UserItems::whereIn('user_id', $userIds)
                         ->whereIn('item_id', $itemIds)
                         ->get()
-                        ->keyBy(fn($item) => $item->user_id . '_' . $item->item_id);
+                        ->keyBy(fn ($item) => $item->user_id.'_'.$item->item_id);
 
                     foreach ($itemLogs as $key => $itemLog) {
-                        if (isset($existingItems[$itemLog['user_id'] . '_' . $itemLog['item_id']])) {
+                        if (isset($existingItems[$itemLog['user_id'].'_'.$itemLog['item_id']])) {
                             $itemLogs[$key]['user_item_id'] =
-                            $existingItems[$itemLog['user_id'] . '_' . $itemLog['item_id']]->id;
+                            $existingItems[$itemLog['user_id'].'_'.$itemLog['item_id']]->id;
                         }
                     }
                 }
@@ -460,7 +472,7 @@ class UserItemService
                 if (! empty($updatedItems)) {
                     foreach ($updatedItems as $item) {
                         UserItems::where('id', $item['id'])->update([
-                            'qty'        => $item['qty'],
+                            'qty' => $item['qty'],
                             'updated_at' => now(),
                         ]);
                     }
@@ -476,17 +488,18 @@ class UserItemService
         } catch (\Exception $e) {
             \Log::error('批量新增道具失敗', [
                 'message' => $e->getMessage(),
-                'file'    => $e->getFile(),
-                'line'    => $e->getLine(),
-                'trace'   => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
             ]);
+
             return ['success' => 0, 'error_code' => 'BulkAddItems:Error'];
         }
 
     }
 
     /** 使用者, 資源id, 資源數量, 需求數量, 額外資源id, 額外資源數量, 額外需求數量 */
-    public static function checkResource($userId, int $itemId, int $requiredAmount): array
+    public function checkResource($userId, int $itemId, int $requiredAmount): array
     {
         if (empty($userId)) {
             return ['success' => 0, 'error_code' => 'AUTH:0006'];
@@ -504,16 +517,34 @@ class UserItemService
         $item = UserItems::where('user_id', $userId)
             ->where('item_id', $itemId)
             ->first();
-
         if (! $item) {
             return ['success' => 0, 'error_code' => 'UserItem:0005'];
         }
 
         if ($item->qty < $requiredAmount) {
-            return ['success' => 0, 'error_code' => 'UserItem:0002'];
+            return ['success' => 0, 'error_code' => 'UserItem:0003'];
         }
 
         return ['success' => 1, 'error_code' => ''];
+    }
+
+    /** 取得特定道具item_id+amount */
+    public function getFormattedItems($uid, $itemIds)
+    {
+        $itemIds = array_unique($itemIds);
+
+        $formatted = [];
+        foreach ($itemIds as $itemId) {
+            $item = UserItems::where('uid', $uid)->where('item_id', $itemId)->first();
+            if ($item) {
+                $formatted[] = [
+                    'item_id' => $item->item_id,
+                    'amount' => $item->qty,
+                ];
+            }
+        }
+
+        return $formatted;
     }
 
     // 初始化貨幣
@@ -523,16 +554,15 @@ class UserItemService
         $item = self::getItem($item_id);
         if ($item['type'] == 'Currency') {
             UserItems::create([
-                'user_id'  => $user_id,
-                'uid'      => $user->uid,
-                'item_id'  => $item_id,
-                'is_lock'  => 1,
-                'region'   => 0,
+                'user_id' => $user_id,
+                'uid' => $user->uid,
+                'item_id' => $item_id,
+                'is_lock' => 1,
+                'region' => 0,
                 'category' => 'Item',
-                'type'     => 'Currency',
-                'qty'      => 0,
+                'type' => 'Currency',
+                'qty' => 0,
             ]);
         }
     }
-
 }

@@ -11,10 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // 如果有此欄位才移除
-        if (Schema::hasColumn('user_maps', 'view_count')) {
-            Schema::table('user_maps', function (Blueprint $table) {
-                $table->dropColumn('view_count');
+        if (Schema::hasColumn('gddb_surgame_player_lv_up', 'reward')) {
+            Schema::table('gddb_surgame_player_lv_up', function (Blueprint $table) {
+                $table->dropColumn('reward');
             });
         }
     }
@@ -24,8 +23,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('user_maps', function (Blueprint $table) {
-            $table->integer('view_count')->default(0);
+        Schema::table('gddb_surgame_player_lv_up', function (Blueprint $table) {
+            $table->text('reward')->nullable()->after('xp');
         });
     }
 };

@@ -18,6 +18,7 @@ class GddbSurgameMobs extends Model
         'def',
         'exp',
         'gold',
+        'unique_id',
     ];
 
     protected $casts = [

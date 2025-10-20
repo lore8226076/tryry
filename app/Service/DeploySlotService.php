@@ -1,20 +1,21 @@
 <?php
+
 namespace App\Service;
 
 use App\Models\CharacterDeploySlot;
 use App\Models\GddbSurgameEqEnhance; // 陣位等級
-use App\Models\GddbSurgameEqRefine;  // 強化
-use App\Models\GddbSurgameLevelUps;  //精煉
+use App\Models\GddbSurgameEqRefine;
+use App\Models\GddbSurgameLevelUps;  // 強化
+use App\Models\UserCharacter;  // 精煉
+use App\Models\UserEquipmentSession;
 use App\Models\Users;
 use App\Models\UserSlotEquipment;
-use App\Service\UserItemService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class DeploySlotService
 {
-
     protected $userItemService;
 
     public function __construct(UserItemService $userItemService)
@@ -39,28 +40,28 @@ class DeploySlotService
                     try {
                         UserSlotEquipment::updateOrCreate(
                             [
-                                'uid'      => $uid,
-                                'slot_id'  => $deploy->id,
+                                'uid' => $uid,
+                                'slot_id' => $deploy->id,
                                 'position' => $i,
                             ],
                             [
-                                'refine_level'  => 0,
+                                'refine_level' => 0,
                                 'enhance_level' => 1,
                             ]
                         );
                     } catch (QueryException $e) {
-                        Log::error("建立 UserSlotEquipment 失敗", [
-                            'uid'      => $uid,
-                            'slot_id'  => $deploy->id,
+                        Log::error('建立 UserSlotEquipment 失敗', [
+                            'uid' => $uid,
+                            'slot_id' => $deploy->id,
                             'position' => $i,
-                            'error'    => $e->getMessage(),
+                            'error' => $e->getMessage(),
                         ]);
                     } catch (\Exception $e) {
-                        Log::critical("未知錯誤：UserSlotEquipment 建立失敗", [
-                            'uid'      => $uid,
-                            'slot_id'  => $deploy->id,
+                        Log::critical('未知錯誤：UserSlotEquipment 建立失敗', [
+                            'uid' => $uid,
+                            'slot_id' => $deploy->id,
                             'position' => $i,
-                            'error'    => $e->getMessage(),
+                            'error' => $e->getMessage(),
                         ]);
                     }
                 }
@@ -68,31 +69,34 @@ class DeploySlotService
 
         } else {
             try {
-                $userEquipment                = new UserSlotEquipment();
-                $userEquipment->uid           = $uid;
-                $userEquipment->slot_id       = $slotId;
-                $userEquipment->position      = $position;
-                $userEquipment->refine_level  = 1;
+                $userEquipment = new UserSlotEquipment;
+                $userEquipment->uid = $uid;
+                $userEquipment->slot_id = $slotId;
+                $userEquipment->position = $position;
                 $userEquipment->enhance_level = 1;
+                $userEquipment->refine_level = 0;
+
                 return $userEquipment->save();
             } catch (\Exception $e) {
                 Log::error('[initUserSlotEquipment] 初始化陣位裝備與精鍊等級失敗', [
-                    'uid'      => $uid,
-                    'slot_id'  => $slotId,
+                    'uid' => $uid,
+                    'slot_id' => $slotId,
                     'position' => $position,
-                    'error'    => $e->getMessage(),
+                    'error' => $e->getMessage(),
                 ]);
+
                 return false;
             }
         }
     }
 
-    //==========陣位等級============
+    // ==========陣位等級============
     public static function getLvMaximum($targetLv = 1): bool
     {
         return GddbSurgameLevelUps::where('target_level', '=', $targetLv)
             ->exists();
     }
+
     // 取得升級材料
     public static function getLvMaterial($targetLv = 1)
     {
@@ -102,14 +106,15 @@ class DeploySlotService
         }
 
         return [
-            'base_item_id'      => $gddb->base_item_id,
-            'base_item_amount'  => $gddb->base_item_amount,
-            'extra_item_id'     => $gddb->extra_item_id ?? 0,
+            'base_item_id' => $gddb->base_item_id,
+            'base_item_amount' => $gddb->base_item_amount,
+            'extra_item_id' => $gddb->extra_item_id ?? 0,
             'extra_item_amount' => $gddb->extra_item_amount ?? 0,
         ];
     }
+
     // 檢查升級材料是否足夠
-    public static function checkLvMaterial(int $targetLv, Users $user = null): bool
+    public static function checkLvMaterial(int $targetLv, ?Users $user = null): bool
     {
         if (! $user) {
             $user = auth()->guard('api')->user();
@@ -123,9 +128,10 @@ class DeploySlotService
         if (! $lvMaterial) {
             return false;
         }
+        $svc = new UserItemService;
 
         // 1) 先檢查主要道具
-        $baseCheck = $this->userItemService->checkResource(
+        $baseCheck = $svc->checkResource(
             $user->id,
             (int) $lvMaterial['base_item_id'],
             (int) $lvMaterial['base_item_amount']
@@ -136,7 +142,7 @@ class DeploySlotService
 
         // 2) 再檢查額外道具（如果有）
         if (! empty($lvMaterial['extra_item_id']) && (int) $lvMaterial['extra_item_amount'] > 0) {
-            $extraCheck = $this->userItemService->checkResource(
+            $extraCheck = $svc->checkResource(
                 $user->id,
                 (int) $lvMaterial['extra_item_id'],
                 (int) $lvMaterial['extra_item_amount']
@@ -149,7 +155,7 @@ class DeploySlotService
         return true;
     }
 
-    //==========裝備or精煉==============
+    // ==========裝備or精煉==============
     // 精煉裝備
     public function refineEquipment(UserSlotEquipment $userEquipment, int $times = 1): array
     {
@@ -162,14 +168,14 @@ class DeploySlotService
         try {
             $res = DB::transaction(function () use ($userEquipment, $times) {
                 // 行鎖，避免併發同時精煉同一件
-                $eq     = UserSlotEquipment::whereKey($userEquipment->id)->lockForUpdate()->first();
+                $eq = UserSlotEquipment::whereKey($userEquipment->id)->lockForUpdate()->first();
                 $userId = (int) ($eq->user->id ?? 0);
                 if ($userId <= 0) {
                     throw new \RuntimeException('AUTH:0006');
                 }
 
-                $tries     = 0;    // 實際扣了幾次材料（=嘗試次數）
-                $leveled   = 0;    // 是否成功升 1 級（0/1）
+                $tries = 0;    // 實際扣了幾次材料（=嘗試次數）
+                $leveled = 0;    // 是否成功升 1 級（0/1）
                 $finalRate = null; // 交易結束時的儲存成功率（0~100）
 
                 for ($i = 0; $i < $times; $i++) {
@@ -187,7 +193,7 @@ class DeploySlotService
                     }
 
                     // 扣一次材料（失敗丟例外以回滾）
-                    $baseId  = (int) ($m['base_item_id'] ?? 0);
+                    $baseId = (int) ($m['base_item_id'] ?? 0);
                     $baseAmt = (int) ($m['base_item_amount'] ?? 0);
                     if ($baseId > 0 && $baseAmt > 0) {
                         $this->deductOrThrow(73, $userId, $eq->uid, $baseId, $baseAmt, '裝備精煉扣除', 1);
@@ -201,7 +207,7 @@ class DeploySlotService
                     }
 
                     $storedRate = (int) $this->getCurrentSuccessRate($eq);
-                    $rate       = max($defaultRate, min(100, $storedRate ?: $defaultRate));
+                    $rate = max($defaultRate, min(100, $storedRate ?: $defaultRate));
 
                     // 若儲存值 < baseline，先回寫 baseline，保持資料一致
                     if ($storedRate !== $rate) {
@@ -216,7 +222,7 @@ class DeploySlotService
                         }
                         $eq->refresh();
                         $userEquipment->refine_level = $eq->refine_level;
-                        $leveled                     = 1;
+                        $leveled = 1;
 
                         $newDefault = (int) $this->getRefineSuccessRate((int) $eq->refine_level);
                         $newDefault = max(0, min(100, $newDefault));
@@ -236,47 +242,51 @@ class DeploySlotService
 
                 // 交易內回傳給外層
                 return [
-                    'tries'        => $tries,
-                    'leveled'      => $leveled,
-                    'new_level'    => (int) $eq->refine_level,
-                    'success_rate' => (int) ($finalRate ?? (int) $this->getCurrentSuccessRate($eq) ?: 0),
+                    'tries' => $tries,
+                    'leveled' => $leveled,
+                    'new_level' => (int) $eq->refine_level,
+                    'success_rate' => (int) ($finalRate ?? (int) $this->getCurrentSuccessRate($eq) ?: 40),
                 ];
             }, 3);
 
             // 成功（流程完整，未必升級）
             return [
-                'success'      => 1,
-                'message'      => '精煉完成',
+                'success' => 1,
+                'message' => '精煉完成',
                 'refine_times' => $res['tries'],        // 本次實際嘗試次數（=扣了幾次料）
-                'leveled'      => $res['leveled'],      // 是否升上去（0/1）
-                'new_level'    => $res['new_level'],    // 結束時等級
+                'leveled' => $res['leveled'],      // 是否升上去（0/1）
+                'new_level' => $res['new_level'],    // 結束時等級
                 'success_rate' => $res['success_rate'], // 結束時儲存的成功率（0~100）
             ];
 
         } catch (\Throwable $e) {
             \Log::error('[refineEquipment] 裝備精煉失敗', [
-                'uid'   => $userEquipment->uid,
+                'uid' => $userEquipment->uid,
                 'times' => $times,
-                'err'   => $e->getMessage(),
+                'err' => $e->getMessage(),
             ]);
+
             return ['success' => 0, 'message' => '精煉失敗'];
         }
     }
+
     // 強化裝備
-    public function enhanceEquipment($slotId, ?int $position = null): array
+    public function enhanceEquipment($uid, $slotId, ?int $position = null): array
     {
         try {
             // -------------------------
             // case 1: 單件強化
             // -------------------------
-            if ($position) {
+            if ($position === 0 || $position > 0) {
                 $eq = UserSlotEquipment::where([
-                    'slot_id'  => $slotId,
+                    'uid' => $uid,
+                    'slot_id' => $slotId,
                     'position' => $position,
                 ])->first();
                 if (! $eq) {
                     return ['success' => 0, 'message' => '此 slot 無裝備'];
                 }
+
                 return $this->enhanceCore($eq);
             }
 
@@ -286,8 +296,16 @@ class DeploySlotService
             if (! $slotId) {
                 return ['success' => 0, 'message' => '缺少 slotId', 'EQUIPMENT:0002'];
             }
+
+            // 取出有裝備的position才能強化
+            $hasPositions = UserEquipmentSession::where(['uid' => $uid, 'slot_id' => $slotId, 'is_used' => 1])
+                ->get()
+                ->pluck('position');
+
             // 取得該 slot 的所有裝備
-            $userEquipments = UserSlotEquipment::where('slot_id', $slotId)->get();
+            $userEquipments = UserSlotEquipment::where('slot_id', $slotId)
+                ->whereIn('position', $hasPositions) // 只取有裝備的
+                ->get();
             if ($userEquipments->isEmpty()) {
                 return ['success' => 0, 'message' => '此 slot 無裝備', 'EQUIPMENT:0003'];
             }
@@ -295,7 +313,7 @@ class DeploySlotService
             // 找出最低強化等級
             $minLv = $userEquipments->min('enhance_level');
             // 篩出所有「等級 == minLv」的裝備
-            $targetEqs = $userEquipments->filter(fn($eq) => $eq->enhance_level == $minLv);
+            $targetEqs = $userEquipments->filter(fn ($eq) => $eq->enhance_level == $minLv);
 
             // 檢查道具至少要能夠強化一次
             foreach ($targetEqs as $eq) {
@@ -316,10 +334,11 @@ class DeploySlotService
             ];
         } catch (\Throwable $e) {
             \Log::error('[enhance] 強化失敗', [
-                'equipmentId' => $equipmentId,
-                'slotId'      => $slotId,
-                'err'         => $e->getMessage(),
+                'slotId' => $slotId,
+                'position' => $position,
+                'err' => $e->getMessage(),
             ]);
+
             return ['success' => 0, 'message' => '強化失敗', 'error_code' => 'EQUIPMENT:0013'];
         }
     }
@@ -332,7 +351,7 @@ class DeploySlotService
 
         try {
             $res = DB::transaction(function () use ($userEquipment) {
-                $eq     = UserSlotEquipment::whereKey($userEquipment->id)->lockForUpdate()->first();
+                $eq = UserSlotEquipment::whereKey($userEquipment->id)->lockForUpdate()->first();
                 $userId = (int) ($eq->user->id ?? 0);
                 if ($userId <= 0) {
                     throw new \RuntimeException('AUTH:0006');
@@ -352,12 +371,12 @@ class DeploySlotService
                 }
 
                 // 扣材料
-                $baseId  = (int) ($m['base_item_id'] ?? 0);
+                $baseId = (int) ($m['base_item_id'] ?? 0);
                 $baseAmt = (int) ($m['base_item_amount'] ?? 0);
                 if ($baseId > 0 && $baseAmt > 0) {
                     $this->deductOrThrow(73, $userId, $eq->uid, $baseId, $baseAmt, '裝備強化扣除', 1);
                 }
-                $extraId  = (int) ($m['extra_item_id'] ?? 0);
+                $extraId = (int) ($m['extra_item_id'] ?? 0);
                 $extraAmt = (int) ($m['extra_item_amount'] ?? 0);
                 if ($extraId > 0 && $extraAmt > 0) {
                     $this->deductOrThrow(73, $userId, $eq->uid, $extraId, $extraAmt, '裝備強化扣除', 1);
@@ -375,9 +394,9 @@ class DeploySlotService
             }, 3);
 
             return [
-                'success'   => 1,
-                'message'   => '強化完成',
-                'leveled'   => $res['leveled'],
+                'success' => 1,
+                'message' => '強化完成',
+                'leveled' => $res['leveled'],
                 'new_level' => $res['new_level'],
             ];
         } catch (\Throwable $e) {
@@ -385,7 +404,8 @@ class DeploySlotService
                 'uid' => $userEquipment->uid ?? null,
                 'err' => $e->getMessage(),
             ]);
-            return ['success' => 0, 'message' => '強化失敗'];
+
+            return ['success' => 0, 'message' => '強化失敗', 'error_code' => $e->getMessage()];
         }
     }
 
@@ -413,7 +433,7 @@ class DeploySlotService
         // 需求量：times=10 就乘 10；其餘一律視為 1
         $mult = ($times === 10) ? 10 : 1;
 
-        $baseId  = (int) ($m['base_item_id'] ?? 0);
+        $baseId = (int) ($m['base_item_id'] ?? 0);
         $baseAmt = (int) ($m['base_item_amount'] ?? 0) * $mult;
 
         // 檢查基礎材料
@@ -426,6 +446,7 @@ class DeploySlotService
 
         return true;
     }
+
     // 檢查強化材料是否足夠
     public function canEnhanceTimes(UserSlotEquipment $userEquipment): bool
     {
@@ -447,10 +468,10 @@ class DeploySlotService
             return false; // 沒有資料
         }
 
-        $baseId  = (int) ($m['base_item_id'] ?? 0);
+        $baseId = (int) ($m['base_item_id'] ?? 0);
         $baseAmt = (int) ($m['base_item_amount'] ?? 0);
 
-        $extraId  = (int) ($m['extra_item_id'] ?? 0);
+        $extraId = (int) ($m['extra_item_id'] ?? 0);
         $extraAmt = (int) ($m['extra_item_amount'] ?? 0);
 
         // 檢查基礎材料
@@ -505,10 +526,10 @@ class DeploySlotService
 
         $resultAry = [];
         // enhance才有ex_cost, ex_cost_amount
-        $resultAry['base_item_id']     = $gddb->cost;
+        $resultAry['base_item_id'] = $gddb->cost;
         $resultAry['base_item_amount'] = $gddb->cost_amount;
         if ($type === 'enhance') {
-            $resultAry['extra_item_id']     = $gddb->ex_cost ?? 0;
+            $resultAry['extra_item_id'] = $gddb->ex_cost ?? 0;
             $resultAry['extra_item_amount'] = $gddb->ex_cost_amount ?? 0;
         }
 
@@ -522,30 +543,34 @@ class DeploySlotService
     }
 
     // 陣位(裝備/精煉) 回傳設定 (單陣位 or 多陣位)
-    public function formatShowEnhanceData($data, $type = 'single', $refineTimes = null)
+    public function formatShowEnhanceData($data, $type = 'single', $refineTimes = null, $isRefine = false)
     {
         $result = [];
         if ($type === 'single') {
             $result = [
-                'deploy_index'  => $data->deploySlot->position,
-                'equip_index'   => $data->position,
-                'refine_level'  => $data->refine_level,
+                'deploy_index' => $data->deploySlot->position,
+                'equip_index' => $data->position,
                 'enhance_level' => $data->enhance_level,
+                'refine_level' => $data->refine_level,
             ];
             if ($refineTimes !== null) {
-                $result['level_result'] = [
+                $result['refine_progress'] = [
                     'refine_times' => $refineTimes['refine_times'] ?? 0,
-                    'leveled'      => $refineTimes['leveled'] ?? 0,
-                    'success_rate' => $refineTimes['success_rate'] ?? 0,
+                    'leveled' => $refineTimes['leveled'] ?? 0,
+                    'success_rate' => $refineTimes['success_rate'] ?? 40,
                 ];
             }
         } elseif ($type === 'multiple') {
+            if ($isRefine) {
+                // 多陣位精煉回傳時，依照陣位順序排序
+                $data = $data->sortBy(fn ($item) => $item->deploySlot->position);
+            }
             foreach ($data as $item) {
                 $result[] = [
-                    'deploy_index'  => $item->deploySlot->position,
-                    'equip_index'   => $item->position,
-                    'refine_level'  => $item->refine_level,
+                    'deploy_index' => $item->deploySlot->position,
+                    'equip_index' => $item->position,
                     'enhance_level' => $item->enhance_level,
+                    'refine_level' => $item->refine_level,
                 ];
             }
         }
@@ -561,15 +586,17 @@ class DeploySlotService
                 return false;
             }
             $userEquipment->enhance_level += 1;
+
             return $userEquipment->save();
         } catch (\Exception $e) {
             Log::error('[updateUserEquipmentLv] 提升裝備等級失敗', [
-                'uid'      => $userEquipment->uid,
+                'uid' => $userEquipment->uid,
                 'position' => $userEquipment->position,
-                'slot_id'  => $userEquipment->slot_id,
-                'type'     => $type,
-                'error'    => $e->getMessage(),
+                'slot_id' => $userEquipment->slot_id,
+                'type' => $type,
+                'error' => $e->getMessage(),
             ]);
+
             return false;
         }
     }
@@ -582,20 +609,22 @@ class DeploySlotService
                 return false;
             }
             $userEquipment->refine_level += 1;
+
             return $userEquipment->save();
         } catch (\Exception $e) {
             Log::error('[updateUserEquipmentRefineLv] 提升裝備精煉提升等級失敗', [
-                'uid'      => $userEquipment->uid,
+                'uid' => $userEquipment->uid,
                 'position' => $userEquipment->position,
-                'slot_id'  => $userEquipment->slot_id,
-                'error'    => $e->getMessage(),
+                'slot_id' => $userEquipment->slot_id,
+                'error' => $e->getMessage(),
             ]);
+
             return false;
         }
     }
 
     // 精煉扣除
-    private function deductOrThrow(int $type, int $userId, string | int $uid, int $itemId, int $qty, string $memo, int $isLock = 1, $userMallOrderId = null, $userPayOrderId = null, $userGachaOrderId = null): void
+    private function deductOrThrow(int $type, int $userId, string|int $uid, int $itemId, int $qty, string $memo, int $isLock = 1, $userMallOrderId = null, $userPayOrderId = null, $userGachaOrderId = null): void
     {
         $r = UserItemService::removeItem(
             $type, $userId, $uid, $itemId, $qty, $isLock, $memo,
@@ -611,16 +640,17 @@ class DeploySlotService
     public function getRefineSuccessRate($targetLv = 1): int
     {
         return GddbSurgameEqRefine::where('lv', $targetLv)
-            ->value('success_rate') ?? 0;
+            ->value('success_rate') ?? 40;
     }
 
     // 取得當前成功機率
     public function getCurrentSuccessRate(UserSlotEquipment $userEquipment): int
     {
         if (! $userEquipment) {
-            return 0;
+            return 40;
         }
-        return (int) ($userEquipment->success_rate ?? 0);
+
+        return (int) ($userEquipment->success_rate ?? 40);
     }
 
     // 調整角色成功機率
@@ -631,15 +661,71 @@ class DeploySlotService
         }
         try {
             $userEquipment->success_rate = $successRate;
+
             return $userEquipment->save();
         } catch (\Exception $e) {
             Log::error('[initUserSlotSuccessRate] 初始化角色成功機率失敗', [
-                'uid'      => $userEquipment->uid,
+                'uid' => $userEquipment->uid,
                 'position' => $userEquipment->position,
-                'slot_id'  => $userEquipment->slot_id,
-                'error'    => $e->getMessage(),
+                'slot_id' => $userEquipment->slot_id,
+                'error' => $e->getMessage(),
             ]);
+
             return false;
+        }
+    }
+
+    // 檢查0號位置是否為主角，若不是則強制設置
+    public function checkAndSetMainCharacter($uid)
+    {
+        return CharacterDeploySlot::where('uid', $uid)
+            ->where('position', 0)
+            ->where('character_id', 0)
+            ->first();
+    }
+
+    public function forceSetMainCharacter($uid): void
+    {
+        try {
+            DB::transaction(function () use ($uid) {
+                // 1. 取得 position=0 的欄位
+                $pos0 = CharacterDeploySlot::where('uid', $uid)
+                    ->where('position', 0)
+                    ->first();
+
+                if (! $pos0) {
+                    \Log::warning('[forceSetMainCharacter] 找不到 position=0 欄位', ['uid' => $uid]);
+
+                    return;
+                }
+
+                $pos0CharacterId = $pos0->character_id ?? null;
+
+                // 2. 若當前角色不是主角(0)，才進行替換
+                if ($pos0CharacterId !== 0) {
+
+                    // 若這個欄位有原角色 -> 清除該角色狀態
+                    if (! is_null($pos0CharacterId)) {
+                        UserCharacter::where('uid', $uid)
+                            ->where('character_id', $pos0CharacterId)
+                            ->update([
+                                'has_use' => 0,
+                                'slot_index' => null,
+                            ]);
+
+                    }
+
+                    // 3. 設定主角上場
+                    $pos0->character_id = 0;
+                    $pos0->save();
+                }
+            });
+
+        } catch (\Exception $e) {
+            Log::error('[forceSetMainCharacter] 強制設置主角失敗', [
+                'uid' => $uid,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 }

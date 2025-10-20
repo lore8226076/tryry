@@ -1,9 +1,7 @@
 <?php
+
 namespace App\Models;
 
-use App\Models\GddbSurgameGrade;
-use App\Models\Users;
-use App\Models\UserSlotEquipment;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -15,11 +13,12 @@ class UserSurGameInfo extends Model
 
     protected $fillable = [
         'uid',
-        'main_chapter',
         'main_character_level',
         'current_exp',
         'grade_level',
     ];
+
+    protected $appends = ['main_chapter'];
 
     protected $hidden = [
         'id',
@@ -33,12 +32,18 @@ class UserSurGameInfo extends Model
     public static function createInitialData($uid)
     {
         return self::create([
-            'uid'                  => $uid,
-            'main_chapter'         => 1,
+            'uid' => $uid,
             'main_character_level' => 1,
-            'current_exp'          => 0,
-            'grade_level'          => 1,
+            'current_exp' => 0,
+            'grade_level' => 1,
         ]);
+    }
+
+    public function getMainChapterAttribute()
+    {
+        $record = UserJourneyRecord::where('uid', $this->uid)->first();
+
+        return $record?->current_journey_id ?? 1;
     }
 
     public function user()

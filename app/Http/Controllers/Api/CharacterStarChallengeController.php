@@ -1,19 +1,26 @@
 <?php
+
 namespace App\Http\Controllers\Api;
 
 use App\Service\ErrorService;
+use App\Service\UserJourneyService;
+use App\Service\StaminaService;
 use App\Service\UserJourneyChallengeService;
+use App\Service\TaskService;
 use Illuminate\Http\Request;
 
 class CharacterStarChallengeController extends Controller
 {
     protected $challengeService;
+    protected $journeyService;
 
-    public function __construct(UserJourneyChallengeService $challengeService, Request $request)
+    public function __construct(UserJourneyService $journeyService,UserJourneyChallengeService $challengeService, Request $request)
     {
         $this->challengeService = $challengeService;
-        $origin         = $request->header('Origin');
-        $referer        = $request->header('Referer');
+        $this->journeyService = $journeyService;
+
+        $origin = $request->header('Origin');
+        $referer = $request->header('Referer');
         $referrerDomain = parse_url($origin, PHP_URL_HOST) ?? parse_url($referer, PHP_URL_HOST);
 
         if ($referrerDomain != config('services.API_PASS_DOMAIN')) {
@@ -23,9 +30,9 @@ class CharacterStarChallengeController extends Controller
     }
 
     /**
-     * 更新玩家星級挑戰
+     *  進入主線扣除體力
      */
-    public function update(Request $request)
+    public function deduct(Request $request)
     {
         $uid = $this->resolveUid($request);
 
@@ -33,8 +40,41 @@ class CharacterStarChallengeController extends Controller
             return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0005'), 422);
         }
 
-        $chapterId   = $request->input('chapter_id');
+        $staminaResult = StaminaService::deductStamina($uid, 5, '星級關卡挑戰');
+        if (empty($staminaResult['success'])) {
+            return response()->json(ErrorService::errorCode(__METHOD__, $staminaResult['error_code']), 422);
+        }
+        $stamina = StaminaService::getStamina($uid);
+
+          // 任務Service
+        $taskService = new TaskService();
+          // 本次登入是否有完成任務
+        $completedTask       = $taskService->getCompletedTasks($uid);
+        $formattedTaskResult = $taskService->formatCompletedTasks($completedTask);
+
+
+        return response()->json(['data' => ['success' => true, 'stamina' => $stamina, 'finishedTask' => $formattedTaskResult]]);
+    }
+
+    /**
+     * 更新玩家星級挑戰
+     */
+    public function update(Request $request)
+    {
+        $user = $this->resolveUid($request, true);
+        $uid = $user?->uid;
+        if (! $uid) {
+            return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0005'), 422);
+        }
+
+        $chapterId = $request->input('chapter_id', 1);
         $earnedStars = $this->normalizeEarnedStars($request->input('earned_stars'));
+
+        // 隨機掉落物
+        $items = $request->input('drop_items', []);
+        if (is_string($items)) {
+            $items = json_decode($items, true);
+        }
 
         if (! is_numeric($chapterId) || (int) $chapterId <= 0) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'Journey:0001'), 422);
@@ -45,11 +85,15 @@ class CharacterStarChallengeController extends Controller
         }
 
         try {
-            $result = $this->challengeService->updateChallengeProgress(
+            $progress = $this->challengeService->updateChallengeProgress(
                 $uid,
                 (int) $chapterId,
                 $earnedStars
             );
+
+            $claim = $this->journeyService->claimReward($user, $items);
+            $result = $progress;
+            $result['rewards'] = $items;
         } catch (\InvalidArgumentException $exception) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'StarChallenge:0002'), 422);
         }
@@ -100,9 +144,7 @@ class CharacterStarChallengeController extends Controller
             return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0005'), 422);
         }
 
-
         $rewardUniqueId = $request->input('reward_id');
-
 
         if (! is_numeric($rewardUniqueId) || (int) $rewardUniqueId <= 0) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'StarReward:0005'), 422);
@@ -120,9 +162,9 @@ class CharacterStarChallengeController extends Controller
             return response()->json(ErrorService::errorCode(__METHOD__, 'SYSTEM:0003'), 422);
         } catch (\Throwable $throwable) {
             \Log::error('星級獎勵領取失敗', [
-                'uid'               => $uid,
-                'reward_unique_id'  => $rewardUniqueId,
-                'message'           => $throwable->getMessage(),
+                'uid' => $uid,
+                'reward_unique_id' => $rewardUniqueId,
+                'message' => $throwable->getMessage(),
             ]);
 
             return response()->json(ErrorService::errorCode(__METHOD__, 'SYSTEM:0003'), 422);
@@ -132,11 +174,14 @@ class CharacterStarChallengeController extends Controller
     }
 
     /**
-     * 解析請求中的玩家 UID
+     * 解析請求來源的 UID
      */
-    protected function resolveUid(Request $request): ?int
+    protected function resolveUid(Request $request, $getUser = false)
     {
         $authUser = auth()->guard('api')->user();
+        if ($getUser) {
+            return $authUser;
+        }
 
         if ($authUser?->uid) {
             return (int) $authUser->uid;
@@ -176,6 +221,7 @@ class CharacterStarChallengeController extends Controller
         foreach ($input as $value) {
             if (is_bool($value)) {
                 $stars[] = $value ? 1 : 0;
+
                 continue;
             }
 
@@ -185,5 +231,42 @@ class CharacterStarChallengeController extends Controller
         }
 
         return $stars;
+    }
+
+    // 重置uid章節與領獎狀態
+    public function resetProgress(Request $request)
+    {
+
+        // 僅允許測試環境
+        $allowedUrls = ['https://project_ai.jengi.tw/api',
+            'https://localhost/api',
+            'https://laravel.test/api',
+            'https://clang-party-dev.wow-dragon.com.tw/api',
+            'https://clang_party_dev.wow-dragon.com.tw/api',
+            'https://clang-party-qa.wow-dragon.com.tw/api',
+        ];
+
+        if (! in_array(config('services.API_URL'), $allowedUrls)) {
+            return response()->json(['message' => '限制測試環境使用'], 403);
+        }
+
+        $uid = $this->resolveUid($request);
+
+        if (! $uid) {
+            return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0005'), 422);
+        }
+
+        try {
+            $this->challengeService->resetChallengeProgress($uid);
+        } catch (\Throwable $throwable) {
+            \Log::error('星級獎勵重置失敗', [
+                'uid' => $uid,
+                'message' => $throwable->getMessage(),
+            ]);
+
+            return response()->json(ErrorService::errorCode(__METHOD__, 'SYSTEM:0003'), 422);
+        }
+
+        return response()->json(['data' => ['success' => true]]);
     }
 }

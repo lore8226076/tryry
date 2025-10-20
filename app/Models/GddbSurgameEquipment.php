@@ -18,6 +18,7 @@ class GddbSurgameEquipment extends Model
         'base_atk',
         'base_hp',
         'base_def',
+        'slot_position',
     ];
 
     public function quality()

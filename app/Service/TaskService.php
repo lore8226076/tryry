@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Service;
 
 use App\Models\MiniGameRanks;
@@ -11,6 +12,7 @@ use App\Models\UserLoginLogs;
 use App\Models\Users;
 use App\Models\UserStaminaLog;
 use App\Models\UserTasks;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -24,25 +26,27 @@ class TaskService
             if ($type === 'special-tasks') {
                 $query->whereIn('id', [4, 5]);
             } else {
-                $query->where('show_type', 'like', '%' . $type . '%');
+                $query->where('show_type', 'like', '%'.$type.'%');
             }
         } else {
             // 排除 events 和 special
             $query->whereNotIn('id', [4, 5]);
         }
+
         return $query->get()->map(function ($category) {
             $category->show_type = $category->show_type;
+
             return $category;
         });
     }
 
     /** 取得所有啟用中的任務 */
-    public function getAvailableTasks(string $uid, string $type = null)
+    public function getAvailableTasks(string $uid, ?string $type = null)
     {
         // 組合快取 Key
-        $cacheKey = 'tasks:list:' . ($type ?? 'all');
+        $cacheKey = 'tasks:list:'.($type ?? 'all');
 
-        $tasks = Cache::remember($cacheKey, now()->addMinutes(10), function () use ($type, $uid) {
+        $tasks = Cache::remember($cacheKey, now()->addMinutes(10), function () use ($type) {
             $query = Tasks::whereHas('category', function ($q) {
                 $q->where('is_active', true);
             })
@@ -61,6 +65,10 @@ class TaskService
             }
 
             $result = $query->get();
+            // 格式化任務獎勵
+            foreach ($result as $task) {
+                $task->reward = $this->formatTaskRewards($task->reward);
+            }
 
             return $result;
         });
@@ -123,6 +131,7 @@ class TaskService
             ")
             ->orderBy('id')
             ->get();
+
         return $tasks;
     }
 
@@ -140,6 +149,7 @@ class TaskService
         }
         if ($this->checkDuplicateTask($uid, $task->id)) {
             \Log::error("使用者 {$uid} 嘗試接取任務 {$task->id} 但已在1分鐘內重複接取。");
+
             return false; // 如果已經有同一天的任務，就不再接取
         }
 
@@ -147,17 +157,18 @@ class TaskService
             DB::transaction(function () use ($uid, $task) {
                 if (! $this->checkDuplicateTask($uid, $task->id)) {
                     UserTasks::create([
-                        'uid'           => $uid,
-                        'task_id'       => $task->id,
-                        'status'        => 'in_progress',
-                        'progress'      => [],
+                        'uid' => $uid,
+                        'task_id' => $task->id,
+                        'status' => 'in_progress',
+                        'progress' => [],
                         'reward_status' => 0,
-                        'completed_at'  => null,
+                        'completed_at' => null,
                     ]);
                 }
             });
         } catch (\Illuminate\Database\QueryException $e) {
             \Log::warning("重複任務接取(唯一索引錯誤): uid={$uid}, task_id={$task->id}, error={$e->getMessage()}");
+
             return false;
         }
 
@@ -166,8 +177,8 @@ class TaskService
     /** 提交進度 */
     public function submitProgress(string $uid, int $taskId, array $progress)
     {
-        $userTask = UserTasks::where('uid', $uid)->where('task_id', $taskId)->latest()->first();
-        $task = Tasks::find($taskId);
+        $userTask = UserTasks::where('uid', $uid)->where('id', $taskId)->latest()->first();
+        $task = Tasks::find($userTask->task_id);
 
         // 型別防呆
         if (is_array($progress) && isset($progress['count'])) {
@@ -176,7 +187,7 @@ class TaskService
         $userTask->progress = $progress;
         $userTask->save();
         if ($this->checkIfTaskCompleted($task, $progress)) {
-            $userTask->status       = 'completed';
+            $userTask->status = 'completed';
             $userTask->completed_at = now();
             $userTask->save();
         }
@@ -193,13 +204,14 @@ class TaskService
         }
         $userTask->reward_status = true; // 領獎狀態
         $userTask->save();
+
         return true;
     }
 
     // 取消任務
     public function cancleTask(string $uid, int $taskId, int $id)
     {
-        $userTask         = UserTasks::where('uid', $uid)->where('task_id', $taskId)->where('id', $id)->firstOrFail();
+        $userTask = UserTasks::where('uid', $uid)->where('task_id', $taskId)->where('id', $id)->firstOrFail();
         $userTask->status = 'cancelled';
         $userTask->save();
     }
@@ -213,14 +225,15 @@ class TaskService
                 return false;
             }
         }
+
         return true;
     }
 
     public function checkRepeatTask(Tasks $task, UserTasks $userTask, string $uid)
     {
         $repeatableType = $task->repeatable_type;
-        $lastCreatedAt  = $userTask->created_at;
-        $now            = now();
+        $lastCreatedAt = $userTask->created_at;
+        $now = now();
 
         switch ($repeatableType) {
             case -1: // 任務完成後可立即再接
@@ -259,8 +272,8 @@ class TaskService
             $tasks->whereIn('id', $taskIds);
         }
 
-        $tasks                   = $tasks->get();
-        $alreadyClearDailyPoint  = false;
+        $tasks = $tasks->get();
+        $alreadyClearDailyPoint = false;
         $alreadyClearWeeklyPoint = false;
         foreach ($tasks as $task) {
             $needAssign = false;
@@ -305,11 +318,10 @@ class TaskService
                 if ($task->repeatable_type === 1 && ! $alreadyClearDailyPoint) {
                     $this->clearTaskItems($uid, $task->id);
                     $alreadyClearDailyPoint = true;
-                } else if ($task->repeatable_type === 2 && ! $alreadyClearWeeklyPoint) {
+                } elseif ($task->repeatable_type === 2 && ! $alreadyClearWeeklyPoint) {
                     $this->clearTaskItems($uid, $task->id);
                     $alreadyClearWeeklyPoint = true;
                 }
-
                 $this->assignTaskToUser($uid, $task);
             }
         }
@@ -318,22 +330,62 @@ class TaskService
     }
 
     /** 取得玩家任務 */
-    public function getUserTask(string $uid, int $taskId, int $id = null)
+    public function getUserTask(string $uid, int $taskId, ?int $id = null)
     {
         $query = UserTasks::where('uid', $uid)->where('task_id', $taskId);
         if ($id !== null) {
             $query->where('id', $id);
         }
+
         return $query->latest()->first();
     }
 
     /** 取得玩家已完成但未領獎的任務 */
     public function getCompletedTasks(string $uid, array $taskIds = [])
     {
-        $query = UserTasks::with('task')->where('uid', $uid)->where('status', 'completed')->where('reward_status', false);
+
+        $query = UserTasks::with('task')
+            ->where('uid', $uid)
+            ->where('status', 'completed')
+            ->where('reward_status', false)
+            ->whereHas('task', function ($q) {
+                $q->where('type', '!=', 'grade')
+                    ->where('is_active', true);
+            });
+
+        // === 加入 daily / weekly 時間條件 ===
+        $todayStart = Carbon::today();
+        $todayEnd = Carbon::tomorrow();
+        $weekStart = Carbon::now()->startOfWeek();
+        $weekEnd = Carbon::now()->endOfWeek();
+
+        $query->where(function ($q) use ($todayStart, $todayEnd, $weekStart, $weekEnd) {
+            $q
+                ->orWhere(function ($q2) use ($todayStart, $todayEnd) {
+                    $q2->whereHas('task', fn ($t) => $t->where('type', 'daily'))
+                        ->whereBetween('created_at', [$todayStart, $todayEnd]);
+                })
+                ->orWhere(function ($q2) use ($weekStart, $weekEnd) {
+                    $q2->whereHas('task', fn ($t) => $t->where('type', 'weekly'))
+                        ->whereBetween('created_at', [$weekStart, $weekEnd]);
+                })
+                ->orWhereHas('task', fn ($t) => $t->whereNotIn('type', ['daily', 'weekly']));
+        });
+
         if (! empty($taskIds)) {
             $query->whereIn('task_id', $taskIds);
         }
+
+        // === 確保相同 task_id 只取 id 最大的一筆 ===
+        // 這裡利用子查詢先選出每個 task_id 的最大 id
+        $latestTaskIds = UserTasks::select(DB::raw('MAX(id) as id'))
+            ->where('uid', $uid)
+            ->groupBy('task_id')
+            ->pluck('id')
+            ->toArray();
+
+        $query->whereIn('id', $latestTaskIds);
+
         return $query->get();
     }
 
@@ -351,6 +403,7 @@ class TaskService
                 return true;
             }
         }
+
         return false;
     }
 
@@ -358,13 +411,12 @@ class TaskService
     public function keywords(): array
     {
         return [
-
             // 任務
-            'login'     => ['login', 'weekly_login', 'login_event'],
-            'gacha'     => ['gacha', 'weekly_gacha'],
+            'login' => ['login', 'weekly_login', 'login_event'],
+            'gacha' => ['gacha', 'weekly_gacha'],
             'mini_game' => ['mini_game'],
-            'reward'    => ['daily_bonus', 'weekly_bonus'],
-            'newbie'    => [
+            'reward' => ['daily_bonus', 'weekly_bonus'],
+            'newbie' => [
                 'teaching_task',
                 'teaching_pet',
                 'teaching_levelselector',
@@ -373,22 +425,22 @@ class TaskService
                 'teaching_gacha',
                 'teaching_finished',
             ],
-            'map'       => [
+            'map' => [
                 'build',
                 'weekly_build',
             ],
-            'visit'     => [
+            'visit' => [
                 'visit',
                 'weekly_visit',
             ],
 
             // 統計關聯的任務
-            'ugc_play'  => ['play', 'weekly_play'],
+            'ugc_play' => ['play', 'weekly_play'],
             'ugc_clear' => ['clear', 'weekly_clear'],
-            'visit'     => ['visit', 'weekly_visit'],
+            'visit' => ['visit', 'weekly_visit'],
             'mall_coin' => ['purchase'],
-            'map'       => ['build', 'weekly_build'],
-            'stamina'   => ['stamina', 'weekly_stamina'],
+            'map' => ['build', 'weekly_build'],
+            'stamina' => ['stamina', 'weekly_stamina'],
         ];
     }
 
@@ -396,7 +448,7 @@ class TaskService
     public function calculateStat(string $uid, string $column, $value = null): ?int
     {
         $secondsUntilEndOfDay = now()->endOfDay()->diffInSeconds(now());
-        $user                 = Users::select('id', 'uid')->where('uid', $uid)->first();
+        $user = Users::select('id', 'uid')->where('uid', $uid)->first();
         switch ($column) {
             // 活動登入
             case 'login_event':
@@ -407,7 +459,7 @@ class TaskService
 
                 // timestamp to datetime
                 $startAt = date('Y-m-d H:i:s', $period['start_at']);
-                $endAt   = date('Y-m-d H:i:s', $period['end_at']);
+                $endAt = date('Y-m-d H:i:s', $period['end_at']);
 
                 $query = UserLoginLogs::where('uid', $uid)
                     ->where('created_at', '>=', $startAt);
@@ -415,28 +467,29 @@ class TaskService
                 if (! empty($period['end_at'])) {
                     $query->where('created_at', '<=', $endAt);
                 }
+
                 return $query
-                    ->selectRaw("COUNT(DISTINCT DATE(created_at)) as days")
+                    ->selectRaw('COUNT(DISTINCT DATE(created_at)) as days')
                     ->value('days');
                 break;
-            // 今天是否有登入過
+                // 今天是否有登入過
             case 'login':
                 return UserLoginLogs::where('uid', $uid)
                     ->whereBetween('created_at', [now()->startOfDay(), now()->endOfDay()])
                     ->exists() ? 1 : 0;
                 break;
 
-            // 今天是否有進行扭蛋
+                // 今天是否有進行扭蛋
             case 'gacha':
                 return UserGachaOrders::where('uid', $uid)
                     ->whereBetween('created_at', [now()->startOfDay(), now()->endOfDay()])
                     ->exists() ? 1 : 0;
                 break;
 
-            // 今天用商城幣消費多少
+                // 今天用商城幣消費多少
             case 'purchase':
                 $todayStart = now()->startOfDay();
-                $todayEnd   = now()->endOfDay();
+                $todayEnd = now()->endOfDay();
                 // 如果商城沒花錢，查轉蛋記錄
                 $total = UserItemLogs::where('user_id', $user->id)
                     ->where('item_id', 100)
@@ -448,83 +501,90 @@ class TaskService
 
                 return $total;
                 break;
-            //檢查當前201積分 日任務
+                // 檢查當前201積分 日任務
             case 'daily_bonus':
                 return UserItems::where('uid', $uid)
                     ->where('item_id', 201)
                     ->first()?->qty ?? 0;
                 break;
-            // 檢查當前登入幾天
+                // 檢查當前登入幾天
             case 'weekly_login':
                 return UserLoginLogs::where('uid', $uid)
                     ->whereBetween('created_at', [now()->startOfWeek(), now()->endOfWeek()])
                     ->selectRaw('COUNT(DISTINCT DATE(created_at)) as days')
                     ->value('days');
                 break;
-            // 檢查當前扭蛋幾次
+                // 檢查當前扭蛋幾次
             case 'weekly_gacha':
                 return UserGachaOrders::where('uid', $uid)
                     ->whereBetween('created_at', [now()->startOfWeek(), now()->endOfWeek()])
                     ->sum('times');
-            // 檢查當前202積分 周任務
+                // 檢查當前202積分 周任務
             case 'weekly_bonus':
                 return UserItems::where('uid', $uid)
                     ->where('item_id', 202)
                     ->first()?->qty ?? 0;
                 break;
-            // 至少玩一次小遊戲
+                // 至少玩一次小遊戲
             case 'mini_game':
                 return MiniGameRanks::where('user_id', $user->id)
                     ->whereBetween('created_at', [now()->startOfWeek(), now()->endOfWeek()])
                     ->count();
                 break;
-            case 'teaching_square': //是否通關廣場教學
+            case 'teaching_square': // 是否通關廣場教學
                 return Users::where('uid', $uid)
                     ->where('teaching_square', 1)
                     ->exists() ? 1 : 0;
                 break;
             case 'weekly_clear': // 遊戲內玩家關卡通關次數
-                $taskId   = 45;
+                $taskId = 45;
                 $userTask = $this->getLatestTask($uid, $taskId);
-                $value    = isset($userTask->progress['count']) ? $userTask->progress['count'] + 1 : 1;
+                $value = isset($userTask->progress['count']) ? $userTask->progress['count'] + 1 : 1;
+
                 return $value;
             case 'clear': // 遊戲內玩家關卡通關次數
                 return 1;
             case 'build':
-                $taskId   = 6;
+                $taskId = 6;
                 $userTask = $this->getLatestTask($uid, $taskId);
-                $value    = isset($userTask->progress['count']) ? $userTask->progress['count'] + 1 : 1;
+                $value = isset($userTask->progress['count']) ? $userTask->progress['count'] + 1 : 1;
+
                 return $value;
             case 'weekly_build':
-                $taskId   = 48;
+                $taskId = 48;
                 $userTask = $this->getLatestTask($uid, $taskId);
-                $value    = isset($userTask->progress['count']) ? $userTask->progress['count'] + 1 : 1;
+                $value = isset($userTask->progress['count']) ? $userTask->progress['count'] + 1 : 1;
+
                 return $value;
             case 'weekly_play': // 遊戲內玩家關卡遊玩次數
-                $taskId   = 43;
+                $taskId = 43;
                 $userTask = $this->getLatestTask($uid, $taskId);
-                $value    = isset($userTask->progress['count']) ? $userTask->progress['count'] + 1 : 1;
+                $value = isset($userTask->progress['count']) ? $userTask->progress['count'] + 1 : 1;
+
                 return $value;
                 break;
             case 'play': // 遊戲內玩家關卡遊玩次數
-                $taskId   = 3;
+                $taskId = 3;
                 $userTask = $this->getLatestTask($uid, $taskId);
-                $value    = isset($userTask->progress['count']) ? $userTask->progress['count'] + 1 : 1;
+                $value = isset($userTask->progress['count']) ? $userTask->progress['count'] + 1 : 1;
+
                 return $value;
                 break;
             case 'visit':
-                $taskId   = 9;
+                $taskId = 9;
                 $userTask = $this->getLatestTask($uid, $taskId);
-                $value    = isset($userTask->progress['count']) ? $userTask->progress['count'] + 1 : 1;
+                $value = isset($userTask->progress['count']) ? $userTask->progress['count'] + 1 : 1;
+
                 return $value;
                 break;
             case 'weekly_visit':
-                $taskId   = 50;
+                $taskId = 50;
                 $userTask = $this->getLatestTask($uid, $taskId);
-                $value    = isset($userTask->progress['count']) ? $userTask->progress['count'] + 1 : 1;
+                $value = isset($userTask->progress['count']) ? $userTask->progress['count'] + 1 : 1;
+
                 return $value;
                 break;
-            // 當日體力消耗
+                // 當日體力消耗
             case 'stamina':
                 $datas = UserStaminaLog::where('uid', $uid)
                     ->whereBetween('created_at', [now()->startOfDay(), now()->endOfDay()])
@@ -534,6 +594,7 @@ class TaskService
                 $total = $datas->sum(function ($data) {
                     return $data->change_stamina;
                 });
+
                 // 因為是負數所以要取絕對值
                 return abs($total);
                 break;
@@ -580,14 +641,14 @@ class TaskService
                     ->exists() ? 1 : 0;
                 break;
         }
+
         return null;
     }
 
     /** 取得活動日期 */
     public function getEventDate(string $action): ?array
     {
-        $task = Tasks::
-            where('start_at', '<=', now())
+        $task = Tasks::where('start_at', '<=', now())
             ->where(function ($query) {
                 $query->whereNull('end_at')->orWhere('end_at', '>=', now());
             })
@@ -603,7 +664,7 @@ class TaskService
 
         return [
             'start_at' => $task->start_at,
-            'end_at'   => $task->end_at ?? null,
+            'end_at' => $task->end_at ?? null,
         ];
     }
 
@@ -612,20 +673,19 @@ class TaskService
     {
         $now = now();
 
-        return Tasks::
-            select('id', 'condition', 'repeatable_type')->
+        return Tasks::select('id', 'condition', 'repeatable_type')->
             where(function ($query) use ($now) {
-            $query->whereNull('start_at')
-                ->orWhere('start_at', '<=', $now);
-        })
-            ->where(function ($query) use ($now) {
-                $query->whereNull('end_at')
-                    ->orWhere('end_at', '>=', $now);
+                $query->whereNull('start_at')
+                    ->orWhere('start_at', '<=', $now);
             })
-            ->get()
-            ->filter(function ($task) use ($action) {
-                return isset($task->condition['action']) && $task->condition['action'] === $action;
-            });
+                ->where(function ($query) use ($now) {
+                    $query->whereNull('end_at')
+                        ->orWhere('end_at', '>=', $now);
+                })
+                ->get()
+                ->filter(function ($task) use ($action) {
+                    return isset($task->condition['action']) && $task->condition['action'] === $action;
+                });
     }
 
     public function formatCompletedTasks($completedTasks)
@@ -649,14 +709,14 @@ class TaskService
 
         // 其他
         $finishedNormalTask = $completedTasks->filter(function ($task) {
-            return ! in_array($task->task?->type, ['newbie', 'event_7days']);
+            return ! in_array($task->task?->type, ['newbie', 'event_7days', 'grade', 'Event_7Days']);
         });
 
         return [
-            'quest'       => [
+            'quest' => [
                 'hasFinishedTasks' => $finishedNormalTask->isNotEmpty(),
             ],
-            'newbie'      => [
+            'newbie' => [
                 'hasFinishedTasks' => $finishedNewbieTask->isNotEmpty(),
             ],
             'event_7days' => [
@@ -667,7 +727,7 @@ class TaskService
 
     private function checkDuplicateTask(string $uid, int $taskId): bool
     {
-        $now           = now();
+        $now = now();
         $tenMinutesAgo = $now->copy()->subMinutes(1);
 
         return UserTasks::where('uid', $uid)
@@ -716,5 +776,35 @@ class TaskService
                 }
             }
         }
+    }
+
+    public function formatTaskRewards($rewards)
+    {
+        $formatted = [];
+
+        // 若 reward 已經是陣列 (ex: [100,1])
+        if (is_array($rewards)) {
+            if (count($rewards) >= 2) {
+                $formatted[] = [
+                    'item_id' => (int) $rewards[0],
+                    'amount' => (int) $rewards[1],
+                ];
+            }
+
+            return $formatted;
+        }
+
+        // 若 reward 是字串格式 (ex: "[100,1],[101,2]")
+        if (is_string($rewards)) {
+            preg_match_all('/\[(\d+)\s*,\s*(\d+)\]/', $rewards, $matches, PREG_SET_ORDER);
+            foreach ($matches as $match) {
+                $formatted[] = [
+                    'item_id' => (int) $match[1],
+                    'amount' => (int) $match[2],
+                ];
+            }
+        }
+
+        return $formatted;
     }
 }

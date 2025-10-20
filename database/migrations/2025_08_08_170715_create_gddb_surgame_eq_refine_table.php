@@ -21,7 +21,7 @@ return new class extends Migration
             $table->unsignedInteger('min_enhance_lv')->default(0)->comment('最低強化等級');
             $table->unsignedInteger('cost')->comment('消耗道具ID');
             $table->unsignedInteger('cost_amount')->default(0)->comment('消耗數量');
-            $table->unsignedInteger('success_rate')->default(0)->comment('成功率(百分比)');
+            $table->unsignedInteger('success_rate')->default(40)->comment('成功率(百分比)');
             $table->comment('裝備精煉消耗表');
         });
     }

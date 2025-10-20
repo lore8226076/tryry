@@ -1,17 +1,18 @@
 <?php
+
 namespace App\Service;
 
 use App\Models\GddbSurgameHeroes as Heros;
 use App\Models\GddbSurgamePlayerLvUp as PlayerLvUp;
+use App\Models\UserCharacter;
 use App\Models\UserItems;
 use App\Models\UserSurGameInfo as UserInfo;
-use App\Service\UserItemService;
 
 class CharacterService
 {
     public $weightLists = [
-        'R'   => 7,
-        'SR'  => 2,
+        'R' => 7,
+        'SR' => 2,
         'SSR' => 1,
     ];
 
@@ -55,7 +56,7 @@ class CharacterService
         $currentUser = UserInfo::where('uid', $user->uid)->first();
         if (empty($currentUser)) {
             return [
-                'success'    => false,
+                'success' => false,
                 'error_code' => 'AUTH:0001',
             ];
         }
@@ -63,7 +64,7 @@ class CharacterService
         $playerLvUp = PlayerLvUp::where('account_lv', $currentUser->main_character_level + 1)->first();
         if (empty($playerLvUp)) {
             return [
-                'success'    => false,
+                'success' => false,
                 'error_code' => 'PlayerLevelUp:0001',
             ];
         }
@@ -72,7 +73,7 @@ class CharacterService
         $itemCheck = self::canUpgrade($user);
         if ($itemCheck['success'] == 0) {
             return [
-                'success'    => false,
+                'success' => false,
                 'error_code' => $itemCheck['error_code'],
             ];
         }
@@ -80,7 +81,7 @@ class CharacterService
         $currentUserInfo = UserInfo::with('user')->where('uid', $currentUser->uid)->first();
         if (! $currentUserInfo) {
             return [
-                'success'    => false,
+                'success' => false,
                 'error_code' => 'AUTH:0001',
             ];
         }
@@ -108,14 +109,14 @@ class CharacterService
         if (is_array($reward) && count($reward) == 2) {
             $reward = [
                 'item_id' => $reward[0],
-                'amount'  => $reward[1],
+                'amount' => $reward[1],
             ];
         }
         if (! empty($reward)) {
             $result = UserItemService::addItem(50, $currentUserInfo->user->id, $currentUserInfo->uid, $reward['item_id'], $reward['amount'], 1, '主角升級獎勵');
             if ($result['success'] == 0) {
                 return [
-                    'success'    => false,
+                    'success' => false,
                     'error_code' => $result['error_code'],
                 ];
             }
@@ -123,7 +124,7 @@ class CharacterService
 
         return [
             'success' => true,
-            'reward'  => $reward,
+            'reward' => $reward,
         ];
     }
 
@@ -163,4 +164,49 @@ class CharacterService
         return ['success' => 1, 'error_code' => ''];
     }
 
+    // 取得使用者角色列表
+    public static function getUserCharacterList($uid)
+    {
+        $deployCharAry = UserCharacter::where('uid', $uid)
+            ->where('has_use', 1)
+            ->orderByRaw('CAST(slot_index AS UNSIGNED)')
+            ->get(['character_id', 'star_level', 'slot_index'])
+            ->map(fn ($c) => [
+                'slot_index' => (int) $c->slot_index,
+                'character_id' => (int) $c->character_id,
+                'star_level' => (int) $c->star_level,
+            ])
+            ->toArray();
+
+        $undeployCharAry = UserCharacter::where('uid', $uid)
+            ->where('has_use', 0)
+            ->join('gddb_surgame_heroes', 'user_characters.character_id', '=', 'gddb_surgame_heroes.unique_id')
+            ->get(['user_characters.character_id', 'user_characters.star_level', 'gddb_surgame_heroes.rarity'])
+            ->sort(function ($a, $b) {
+                // 定義稀有度排序 SSR > SR > R
+                $rarityOrder = ['SSR' => 3, 'SR' => 2, 'R' => 1];
+                $rarityA = $rarityOrder[$a->rarity] ?? 0;
+                $rarityB = $rarityOrder[$b->rarity] ?? 0;
+                if ($rarityA === $rarityB) {
+                    // 稀有度相同時，依 star_level 排序（高到低）
+                    return $b->star_level <=> $a->star_level;
+                }
+
+                // 稀有度排序（高到低）
+                return $rarityB <=> $rarityA;
+            })
+            ->map(fn ($c) => [
+                'character_id' => $c->character_id,
+                'star_level' => $c->star_level,
+                'rarity' => $c->rarity,
+            ])
+            ->values()
+            ->toArray();
+
+        return [
+            'deploy' => $deployCharAry,
+            'undeploy' => $undeployCharAry,
+        ];
+
+    }
 }

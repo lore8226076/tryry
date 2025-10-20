@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
@@ -13,7 +14,6 @@ use App\Service\UserItemService;
 use App\Service\UserStatsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 
 class TaskController extends Controller
@@ -24,8 +24,8 @@ class TaskController extends Controller
     {
         $this->taskService = $taskService;
 
-        $origin         = $request->header('Origin');
-        $referer        = $request->header('Referer');
+        $origin = $request->header('Origin');
+        $referer = $request->header('Referer');
         $referrerDomain = parse_url($origin, PHP_URL_HOST) ?? parse_url($referer, PHP_URL_HOST);
         if ($referrerDomain != config('services.API_PASS_DOMAIN')) {
             $this->middleware('auth:api', ['except' => ['list', 'currentList']]);
@@ -39,7 +39,7 @@ class TaskController extends Controller
             return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0006'), 422);
         }
 
-        $type   = request()->input('type');
+        $type = request()->input('type');
         $result = $this->taskService->getAvailableTasks($user->uid, $type);
 
         return response()->json(['data' => $result]);
@@ -62,7 +62,7 @@ class TaskController extends Controller
     public function currentList()
     {
         $status = request()->input('status');
-        $uid    = auth()->guard('api')->user()->uid;
+        $uid = auth()->guard('api')->user()->uid;
         if (empty($uid)) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0005'), 422);
         }
@@ -116,8 +116,9 @@ class TaskController extends Controller
         } catch (\Exception $e) {
             \Log::error('任務領取失敗', [
                 'message' => $e->getMessage(),
-                'data'    => $userTask,
+                'data' => $userTask,
             ]);
+
             return response()->json(['error' => $e->getMessage()], 400);
         }
     }
@@ -144,20 +145,21 @@ class TaskController extends Controller
         $progress = $request->input('progress');
         try {
             $userTask = $this->taskService->submitProgress($uid, $taskId, $progress);
-            //============ 任務系統 ============
+            // ============ 任務系統 ============
             // 任務Service
             // 本次登入是否有完成任務
-            $completedTask       = $this->taskService->getCompletedTasks($uid);
+            $completedTask = $this->taskService->getCompletedTasks($uid);
             $formattedTaskResult = $this->taskService->formatCompletedTasks($completedTask);
-            //============ 任務系統 ============
+            // ============ 任務系統 ============
 
             return response()->json(['message' => '進度已更新', 'data' => $userTask, 'finishedTask' => $formattedTaskResult]);
         } catch (\Exception $e) {
 
             \Log::error('任務進度更新失敗', [
                 'message' => $e->getMessage(),
-                'data'    => $userTask,
+                'data' => $userTask,
             ]);
+
             return response()->json(['error' => $e->getMessage()], 400);
         }
     }
@@ -195,10 +197,12 @@ class TaskController extends Controller
             $result = $this->taskService->changeRewardStatus($uid, $id);
             if ($result) {
                 // 發放道具
-                $reward      = Tasks::find($taskId)->reward;
-                $addFailed   = false;
+                $reward = Tasks::find($taskId)->reward;
+                $rewards = $this->parseReward($reward);
+
+                $addFailed = false;
                 $finalReward = [];
-                foreach ($reward as $item) {
+                foreach ($rewards as $item) {
 
                     $result = UserItemService::addItem(UserItemLogs::TYPE_SYSTEM, $user->id, $uid, $item['item_id'], $item['amount'], 1, '任務獎勵領取');
                     if ($result['success'] == 0) {
@@ -206,7 +210,7 @@ class TaskController extends Controller
                     } elseif ($result['success'] == 1 && isset($result['item_id'])) {
                         $finalReward[] = [
                             'item_id' => $result['item_id'],
-                            'amount'  => $result['qty'],
+                            'amount' => $result['qty'],
                         ];
                     } else {
                         $finalReward[] = $item;
@@ -228,17 +232,17 @@ class TaskController extends Controller
                     }
                 }
 
-                //============ 任務系統 ============
+                // ============ 任務系統 ============
                 // 任務Service
-                $taskService = new TaskService();
+                $taskService = new TaskService;
                 // 玩家任務
                 $taskStatsService = new UserStatsService($taskService, $taskService->keywords(), [$taskService, 'calculateStat']);
-                $taskResult       = $taskStatsService->updateByKeyword($user, 'reward');
+                $taskResult = $taskStatsService->updateByKeyword($user, 'reward');
 
                 // 本次登入是否有完成任務
-                $completedTask       = $taskService->getCompletedTasks($user->uid);
+                $completedTask = $taskService->getCompletedTasks($user->uid);
                 $formattedTaskResult = $taskService->formatCompletedTasks($completedTask);
-                //============ 任務系統 ============
+                // ============ 任務系統 ============
 
                 return response()->json(['message' => '獎勵已發放', 'reward' => $reward, 'finishedTask' => $formattedTaskResult]);
             } else {
@@ -247,8 +251,9 @@ class TaskController extends Controller
         } catch (\Exception $e) {
             \Log::error('任務獎勵領取失敗', [
                 'message' => $e->getMessage(),
-                'data'    => $userTask,
+                'data' => $userTask,
             ]);
+
             return response()->json(['error' => $e->getMessage()], 400);
         }
     }
@@ -265,12 +270,13 @@ class TaskController extends Controller
         if (empty($taskId)) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'TASK:0001'), 422);
         }
-        $id       = $request->input('progress_id');
+        $id = $request->input('progress_id');
         $userTask = $this->taskService->getUserTask($uid, $taskId, $id);
         if (! $userTask) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'TASK:0001'), 422);
         }
         $this->taskService->cancleTask($uid, $taskId, $id);
+
         return response()->json(['message' => '任務取消成功']);
     }
 
@@ -302,10 +308,12 @@ class TaskController extends Controller
         foreach ($userTasks as $userTask) {
             $result = $this->taskService->changeRewardStatus($uid, $userTask->id);
             if ($result) {
-                $reward    = Tasks::find($userTask->task_id)->reward;
+                $reward = Tasks::find($userTask->task_id)->reward;
+                $rewards = $this->parseReward($reward);
+
                 $addFailed = false;
 
-                foreach ($reward as $item) {
+                foreach ($rewards as $item) {
                     if (! isset($rewardSummary[$item['item_id']])) {
                         $rewardSummary[$item['item_id']] = 0;
                     }
@@ -324,10 +332,10 @@ class TaskController extends Controller
                     if ($result['success'] == 0) {
                         $addFailed = true;
                         \Log::error('獎勵領取失敗', [
-                            'message'  => '獎勵領取失敗',
-                            'data'     => $item,
-                            'user'     => $user,
-                            'uid'      => $uid,
+                            'message' => '獎勵領取失敗',
+                            'data' => $item,
+                            'user' => $user,
+                            'uid' => $uid,
                             'userTask' => $userTask,
                         ]);
                     }
@@ -337,10 +345,10 @@ class TaskController extends Controller
                         $staminaResult = StaminaService::convertStamina($user->uid, $item['amount']);
                         if (empty($staminaResult['success'])) {
                             \Log::error('體力道具轉換失敗', [
-                                'message'  => '體力道具轉換失敗',
-                                'data'     => $item,
-                                'user'     => $user,
-                                'uid'      => $uid,
+                                'message' => '體力道具轉換失敗',
+                                'data' => $item,
+                                'user' => $user,
+                                'uid' => $uid,
                                 'userTask' => $userTask,
                             ]);
                         }
@@ -357,25 +365,25 @@ class TaskController extends Controller
         $rewardSummaryFormatted = collect($rewardSummary)->map(function ($amount, $itemId) {
             return [
                 'item_id' => (int) $itemId,
-                'amount'  => $amount,
+                'amount' => $amount,
             ];
         })->values()->all();
 
-        //============ 任務系統 ============
+        // ============ 任務系統 ============
         // 任務Service
-        $taskService = new TaskService();
+        $taskService = new TaskService;
         // 玩家任務
         $taskStatsService = new UserStatsService($taskService, $taskService->keywords(), [$taskService, 'calculateStat']);
-        $taskResult       = $taskStatsService->updateByKeyword($user, 'reward');
+        $taskResult = $taskStatsService->updateByKeyword($user, 'reward');
 
         // 本次登入是否有完成任務
-        $completedTask       = $taskService->getCompletedTasks($user->uid);
+        $completedTask = $taskService->getCompletedTasks($user->uid);
         $formattedTaskResult = $taskService->formatCompletedTasks($completedTask);
-        //============ 任務系統 ============
+        // ============ 任務系統 ============
 
         return response()->json([
-            'message'      => '一鍵領取所有任務獎勵成功',
-            'reward'       => $rewardSummaryFormatted,
+            'message' => '一鍵領取所有任務獎勵成功',
+            'reward' => $rewardSummaryFormatted,
             'finishedTask' => $formattedTaskResult,
         ]);
     }
@@ -384,12 +392,12 @@ class TaskController extends Controller
     public function reset(Request $request)
     {
         // 僅允許測試環境
-        $allowedUrls = ['https://project_ai.jengi.tw/api', 
-        'https://localhost/api', 
-        'https://laravel.test/api', 
-        'https://clang-party-dev.wow-dragon.com.tw/api',
-        'https://clang_party_dev.wow-dragon.com.tw/api',
-        'https://clang-party-qa.wow-dragon.com.tw/api',
+        $allowedUrls = ['https://project_ai.jengi.tw/api',
+            'https://localhost/api',
+            'https://laravel.test/api',
+            'https://clang-party-dev.wow-dragon.com.tw/api',
+            'https://clang_party_dev.wow-dragon.com.tw/api',
+            'https://clang-party-qa.wow-dragon.com.tw/api',
         ];
 
         if (! in_array(config('services.API_URL'), $allowedUrls)) {
@@ -408,17 +416,80 @@ class TaskController extends Controller
         try {
             Artisan::call('points:reset-all', [
                 '--force' => true,
-                '--uid'   => $uid,
+                '--uid' => $uid,
             ]);
         } catch (\Throwable $e) {
-            Log::error("[重置任務] 執行 Artisan 指令失敗", [
-                'uid'   => $uid,
+            Log::error('[重置任務] 執行 Artisan 指令失敗', [
+                'uid' => $uid,
                 'error' => $e->getMessage(),
             ]);
+
             return response()->json(['message' => '任務重置失敗'], 500);
         }
 
         return response()->json(['message' => '任務重置成功']);
     }
 
+    /**
+     * 將 reward 欄位轉換成統一格式：
+     * [['item_id' => int, 'amount' => int], ...]
+     */
+    private function parseReward($rawReward): array
+    {
+        if (empty($rawReward)) {
+            return [];
+        }
+
+        $reward = null;
+
+        // Step 1: 嘗試直接 decode
+        if (is_string($rawReward)) {
+            $reward = json_decode($rawReward, true);
+
+            // Step 2: 若 decode 失敗（例如不是完整 JSON）
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                $rawReward = trim($rawReward);
+
+                // 若沒有外層中括號，加上
+                if (! Str::startsWith($rawReward, '[')) {
+                    $rawReward = '['.$rawReward.']';
+                }
+
+                // 移除開頭亂碼或非 JSON 字元（例如 '9[100080,1]'）
+                $rawReward = preg_replace('/^[^\[]+/', '', $rawReward);
+
+                $reward = json_decode($rawReward, true);
+            }
+        } elseif (is_array($rawReward)) {
+            $reward = $rawReward;
+        }
+
+        // Step 3: 若還是解析不到或不為陣列，直接回傳空陣列
+        if (! is_array($reward)) {
+            return [];
+        }
+
+        // Step 4: 統一轉換成 [['item_id'=>x, 'amount'=>y]]
+        $formatted = [];
+
+        // 單筆獎勵 [id, amount]
+        if (count($reward) === 2 && is_numeric($reward[0] ?? null)) {
+            return [[
+                'item_id' => (int) $reward[0],
+                'amount' => (int) $reward[1],
+            ]];
+        }
+
+        // 多筆獎勵 [[id, amount], [id, amount], ...]
+        foreach ($reward as $r) {
+            if (is_array($r) && count($r) === 2 && is_numeric($r[0] ?? null) && is_numeric($r[1] ?? null)) {
+                $formatted[] = [
+                    'item_id' => (int) $r[0],
+                    'amount' => (int) $r[1],
+                ];
+            }
+        }
+
+        return $formatted;
+    }
 }

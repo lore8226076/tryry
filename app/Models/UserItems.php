@@ -54,6 +54,6 @@ class UserItems extends BaseModel
 
     public function item()
     {
-        return $this->belongsTo('App\Models\GddbItems', 'item_id');
+        return $this->belongsTo('App\Models\GddbItems', 'item_id', 'item_id');
     }
 }

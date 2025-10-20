@@ -10,6 +10,5 @@ class GddbSurgamePlayerLvUp extends Model
     protected $fillable = [
         'account_lv',
         'xp',
-        'reward',
     ];
 }

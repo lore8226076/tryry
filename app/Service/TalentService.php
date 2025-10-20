@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Service;
 
 use App\Models\GddbSurgameTalentDraw;
@@ -19,8 +20,9 @@ class TalentService
             $itemCode = $this->drawTalent($uid, $talents);
             if ($itemCode === null) {
                 DB::rollBack();
+
                 return [
-                    'success'    => 0,
+                    'success' => 0,
                     'error_code' => 'TALENT:0003',
                 ];
             }
@@ -29,8 +31,9 @@ class TalentService
             $deductResult = $this->deductTalentPool($uid, $sessionId, $itemCode);
             if (! $deductResult) {
                 DB::rollBack();
+
                 return [
-                    'success'    => 0,
+                    'success' => 0,
                     'error_code' => 'TALENT:0007',
                 ];
             }
@@ -39,8 +42,9 @@ class TalentService
             $logResult = $this->logDrawnTalent($uid, $sessionId, $itemCode);
             if (! $logResult) {
                 DB::rollBack();
+
                 return [
-                    'success'    => 0,
+                    'success' => 0,
                     'error_code' => 'TALENT:0004',
                 ];
             }
@@ -49,26 +53,29 @@ class TalentService
 
             return [
                 'success' => 1,
-                'data'    => $itemCode,
+                'data' => $itemCode,
             ];
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error("抽獎流程失敗", [
-                'uid'  => $uid,
+            Log::error('抽獎流程失敗', [
+                'uid' => $uid,
                 '錯誤訊息' => $e->getMessage(),
             ]);
+
             return [
-                'success'    => 0,
+                'success' => 0,
                 'error_code' => 'TALENT:0007',
             ];
         }
     }
+
     public function drawTalent($uid, $talents = [])
     {
         if (count($talents) === 0) {
             return null;
         }
         $key = array_rand($talents); // 隨機拿 key
+
         return $talents[$key];
     }
 
@@ -76,8 +83,8 @@ class TalentService
     public function deductTalentPool($uid, $sessionId, $itemCode)
     {
         $talentPool = UserTalentPoolSession::where([
-            'uid'    => $uid,
-            'id'     => $sessionId,
+            'uid' => $uid,
+            'id' => $sessionId,
             'status' => 'active',
         ])->first();
         if (! $talentPool) {
@@ -96,7 +103,7 @@ class TalentService
         }
         unset($currentRemaining[$itemKey]);
         $currentRemaining = array_values($currentRemaining); // 重建索引
-        $updateData       = [
+        $updateData = [
             'current_remaining' => $currentRemaining,
         ];
         if (count($currentRemaining) === 0) {
@@ -105,14 +112,16 @@ class TalentService
         try {
             $talentPool->update($updateData);
         } catch (\Exception $e) {
-            Log::error("扣除獎池天賦失敗：資料庫錯誤", [
-                'uid'        => $uid,
+            Log::error('扣除獎池天賦失敗：資料庫錯誤', [
+                'uid' => $uid,
                 'session_id' => $sessionId,
-                'item_code'  => $itemCode,
-                '錯誤訊息'       => $e->getMessage(),
+                'item_code' => $itemCode,
+                '錯誤訊息' => $e->getMessage(),
             ]);
+
             return false;
         }
+
         return true;
     }
 
@@ -121,25 +130,27 @@ class TalentService
     {
         try {
             UserTalentSessionLog::create([
-                'uid'        => $uid,
+                'uid' => $uid,
                 'session_id' => $sessionId,
-                'item_code'  => $itemCode,
+                'item_code' => $itemCode,
             ]);
         } catch (\Exception $e) {
-            Log::error("紀錄被抽取天賦失敗：資料庫錯誤", [
-                'uid'       => $uid,
+            Log::error('紀錄被抽取天賦失敗：資料庫錯誤', [
+                'uid' => $uid,
                 'item_code' => $itemCode,
-                '錯誤訊息'      => $e->getMessage(),
+                '錯誤訊息' => $e->getMessage(),
             ]);
+
             return false;
         }
+
         return true;
     }
 
     // 當前可抽取的資源 (等級以下的等級都能抽, 最低層要抽完才能再往上一層)
     public function getAvailableTalent($uid)
     {
-        $talentAry   = [];
+        $talentAry = [];
         $uTalentPool = UserTalentPoolSession::where(['uid' => $uid, 'status' => 'active'])->first();
         if ($uTalentPool === null) {
             return null;
@@ -152,23 +163,24 @@ class TalentService
 
         return [
             'session_id' => $talentSessionId,
-            'items'      => $talentAry,
+            'items' => $talentAry,
         ];
     }
 
     public function createTalentPool($uid, $level): array
     {
         $existsUserTalentPool = UserTalentPoolSession::where([
-            'uid'           => $uid,
+            'uid' => $uid,
             'level_at_bind' => $level,
         ])->first();
 
         if ($existsUserTalentPool !== null) {
-            Log::warning("建立獎池失敗：該等級的獎池已存在", compact('uid', 'level'));
+            Log::warning('建立獎池失敗：該等級的獎池已存在', compact('uid', 'level'));
+
             return [
-                'success'    => false,
+                'success' => false,
                 'error_code' => 'TALENT:0005',
-                'message'    => '獎池已存在',
+                'message' => '獎池已存在',
             ];
         }
 
@@ -183,11 +195,12 @@ class TalentService
             ->first();
 
         if ($drawInfo === null) {
-            Log::error("建立獎池失敗：找不到任何符合的等級資料", compact('uid', 'level'));
+            Log::error('建立獎池失敗：找不到任何符合的等級資料', compact('uid', 'level'));
+
             return [
-                'success'    => false,
+                'success' => false,
                 'error_code' => 'TALENT:0006',
-                'message'    => '沒有符合的等級資料',
+                'message' => '沒有符合的等級資料',
             ];
         }
 
@@ -198,42 +211,44 @@ class TalentService
         }
 
         if (! is_array($cardPool) || empty($cardPool)) {
-            Log::error("建立獎池失敗：卡池內容無效", [
-                'uid'       => $uid,
-                '等級'        => $drawInfo->account_lv,
+            Log::error('建立獎池失敗：卡池內容無效', [
+                'uid' => $uid,
+                '等級' => $drawInfo->account_lv,
                 'card_pool' => $drawInfo->card_pool,
             ]);
+
             return [
-                'success'    => false,
+                'success' => false,
                 'error_code' => 'TALENT:0007',
-                'message'    => '卡池內容無效',
+                'message' => '卡池內容無效',
             ];
         }
 
         try {
             UserTalentPoolSession::create([
-                'uid'               => $uid,
-                'talent_draw_id'    => $drawInfo->id,
-                'level_at_bind'     => $drawInfo->account_lv,
+                'uid' => $uid,
+                'talent_draw_id' => $drawInfo->id,
+                'level_at_bind' => $drawInfo->account_lv,
                 'current_remaining' => $cardPool,
-                'status'            => 'active',
+                'status' => 'active',
             ]);
         } catch (\Exception $e) {
-            Log::error("建立獎池失敗：資料庫錯誤", [
-                'uid'  => $uid,
-                '等級'   => $drawInfo->account_lv,
+            Log::error('建立獎池失敗：資料庫錯誤', [
+                'uid' => $uid,
+                '等級' => $drawInfo->account_lv,
                 '錯誤訊息' => $e->getMessage(),
             ]);
+
             return [
-                'success'    => false,
+                'success' => false,
                 'error_code' => 'TALENT:0008',
-                'message'    => '資料庫錯誤',
+                'message' => '資料庫錯誤',
             ];
         }
 
         return [
             'success' => true,
-            'level'   => $drawInfo->account_lv,
+            'level' => $drawInfo->account_lv,
         ];
     }
 
@@ -241,6 +256,7 @@ class TalentService
     public function checkTalentPoolExists($uid, $level)
     {
         $existsUserTalentPool = UserTalentPoolSession::where(['uid' => $uid, 'level_at_bind' => $level])->first();
+
         return $existsUserTalentPool !== null;
     }
 
@@ -257,53 +273,77 @@ class TalentService
                     if (! isset($results[$key])) {
                         $results[$key] = [
                             'item_id' => $key,
-                            'amount'  => 1,
+                            'amount' => 1,
                         ];
                     } else {
                         $results[$key]['amount']++;
                     }
                 }
             });
-        return array_values($results);
+
+        $results = array_values($results);
+        // 排序：R < SR < SSR，且 001~008
+        usort($results, function ($a, $b) {
+            // 取稀有度 (R / SR / SSR)
+            $rarityOrder = ['R' => 1, 'SR' => 2, 'SSR' => 3];
+
+            // 抓出前綴 (R/SR/SSR)
+            preg_match('/^(SSR|SR|R)/', $a['item_id'], $matchA);
+            preg_match('/^(SSR|SR|R)/', $b['item_id'], $matchB);
+            $rarityA = $rarityOrder[$matchA[1]] ?? 999;
+            $rarityB = $rarityOrder[$matchB[1]] ?? 999;
+
+            if ($rarityA !== $rarityB) {
+                return $rarityA - $rarityB;
+            }
+
+            // 抓出數字部分排序
+            $numA = intval(preg_replace('/\D/', '', $a['item_id']));
+            $numB = intval(preg_replace('/\D/', '', $b['item_id']));
+
+            return $numA - $numB;
+        });
+
+        return $results;
     }
 
     // 檢查是否有玩家當前等級的獎池
     public function checkMaxLevelTalentPool($surgameinfo)
     {
-        $uid          = $surgameinfo->uid;
+        $uid = $surgameinfo->uid;
         $userMaxLevel = $surgameinfo->main_character_level;
         $dataMaxLevel = GddbSurgameTalentDraw::max('account_lv');
 
         // 滿級玩家
         if ($userMaxLevel >= $dataMaxLevel) {
             $pool = UserTalentPoolSession::where([
-                'uid'           => $uid,
+                'uid' => $uid,
                 'level_at_bind' => $dataMaxLevel,
             ])->first();
 
             if ($pool === null) {
                 return [
-                    'success'    => 1,
+                    'success' => 1,
                     'error_code' => null,
-                    'level'      => $dataMaxLevel,
-                    'status'     => 'pending',
+                    'level' => $dataMaxLevel,
+                    'status' => 'pending',
                 ];
             }
 
             if ($pool->status === 'completed') {
                 return [
-                    'success'    => 0,
+                    'success' => 0,
                     'error_code' => 'TALENT:0003', // 滿級池子已完成
-                    'level'      => $dataMaxLevel,
-                    'status'     => 'completed',
+                    'level' => $dataMaxLevel,
+                    'status' => 'completed',
                 ];
             }
 
             return [
-                'success'    => 1,
+                'success' => 1,
                 'error_code' => null,
-                'level'      => $dataMaxLevel,
-                'status'     => 'active',
+                'level' => $dataMaxLevel,
+                'status' => 'active',
             ];
         }
 
@@ -314,41 +354,41 @@ class TalentService
 
         if ($maxLevel === null) {
             return [
-                'success'    => 0,
+                'success' => 0,
                 'error_code' => 'TALENT:0007', // 沒有符合的獎池定義
-                'level'      => null,
-                'status'     => 'not_found',
+                'level' => null,
+                'status' => 'not_found',
             ];
         }
 
         $pool = UserTalentPoolSession::where([
-            'uid'           => $uid,
+            'uid' => $uid,
             'level_at_bind' => $maxLevel,
         ])->first();
 
         if ($pool === null) {
             return [
-                'success'    => 1,
+                'success' => 1,
                 'error_code' => null,
-                'level'      => $maxLevel,
-                'status'     => 'pending',
+                'level' => $maxLevel,
+                'status' => 'pending',
             ];
         }
 
         if ($pool->status === 'completed') {
             return [
-                'success'    => 0,
+                'success' => 0,
                 'error_code' => 'TALENT:0003', // 該池已完成
-                'level'      => $maxLevel,
-                'status'     => 'completed',
+                'level' => $maxLevel,
+                'status' => 'completed',
             ];
         }
 
         return [
-            'success'    => 1,
+            'success' => 1,
             'error_code' => null,
-            'level'      => $maxLevel,
-            'status'     => 'active',
+            'level' => $maxLevel,
+            'status' => 'active',
         ];
     }
 
@@ -357,13 +397,33 @@ class TalentService
     {
         // 查詢目前該獎項在玩家身上數量
         $itemAmt = UserTalentSessionLog::where([
-            'uid'       => $uid,
+            'uid' => $uid,
             'item_code' => $itemCode,
         ])->count();
 
         return [
             'item_id' => $itemCode,
-            'amount'  => $itemAmt,
+            'amount' => $itemAmt,
         ];
+    }
+
+    // 取得當前卡池花費
+    public function getCurrentPoolCost($accountLv = 1)
+    {
+        $talentDraw = GddbSurgameTalentDraw::where('account_lv', $accountLv)->first();
+        if ($talentDraw === null) {
+            return null;
+        }
+
+        return ['cost' => $talentDraw->cost, 'amount' => $talentDraw->amount];
+    }
+
+    // 檢查玩家是否已經最高等級
+    public function isUserMaxLevel($surgameinfo)
+    {
+        $userMaxLevel = $surgameinfo->main_character_level;
+        $dataMaxLevel = GddbSurgameTalentDraw::max('account_lv');
+
+        return $userMaxLevel >= $dataMaxLevel;
     }
 }

@@ -11,12 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // 如果有此欄位才移除
-        if (Schema::hasColumn('user_maps', 'view_count')) {
-            Schema::table('user_maps', function (Blueprint $table) {
-                $table->dropColumn('view_count');
-            });
-        }
+        Schema::table('gddb_surgame_levels', function (Blueprint $table) {
+            // base_hp 最大值可以為100000000000000000
+            $table->unsignedBigInteger('base_hp')->change();
+        });
     }
 
     /**
@@ -24,8 +22,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('user_maps', function (Blueprint $table) {
-            $table->integer('view_count')->default(0);
+        Schema::table('gddb_surgame_levels', function (Blueprint $table) {
+            $table->integer('base_hp')->change();
         });
     }
 };

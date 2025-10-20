@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('user_slot_equipments', function (Blueprint $table) {
-            $table->unsignedInteger('success_rate')->default(0)->after('refine_level')->comment('精煉成功率(萬分比)');
+            $table->unsignedInteger('success_rate')->default(40)->after('refine_level')->comment('精煉成功率(萬分比)');
         });
     }
 
