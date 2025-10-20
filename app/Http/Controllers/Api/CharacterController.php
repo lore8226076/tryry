@@ -1,7 +1,7 @@
 <?php
+
 namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Api\Controller;
 use App\Models\CharacterStarRequirements;
 use App\Models\GddbSurgamePlayerLvUp as PlayerLvUp;
 use App\Models\LevelRequirements;
@@ -19,8 +19,8 @@ class CharacterController extends Controller
 {
     public function __construct(Request $request)
     {
-        $origin         = $request->header('Origin');
-        $referer        = $request->header('Referer');
+        $origin = $request->header('Origin');
+        $referer = $request->header('Referer');
         $referrerDomain = parse_url($origin, PHP_URL_HOST) ?? parse_url($referer, PHP_URL_HOST);
         if ($referrerDomain != config('services.API_PASS_DOMAIN')) {
             $this->middleware('auth:api', ['except' => ['getStarRequirements', 'getLevelRequirements', 'getAllCharacter']]);
@@ -57,7 +57,7 @@ class CharacterController extends Controller
         }
 
         // 檢查星級材料
-        $starLevel    = $existUserCharacter->star_level + 1;
+        $starLevel = $existUserCharacter->star_level + 1;
         $starMaterial = CharacterStarService::getStarMaterial($existUserCharacter->character_id, $starLevel);
         // 檢查星級材料是否存在
         if (! $starMaterial) {
@@ -83,6 +83,10 @@ class CharacterController extends Controller
         $existUserCharacter->refresh()->makeHidden(['uid']);
         unset($existUserCharacter->user);
         unset($existUserCharacter->character);
+        // 如果slot_index = null 改為-1
+        if (is_null($existUserCharacter->slot_index)) {
+            $existUserCharacter->slot_index = -1;
+        }
 
         return response()->json(['data' => $existUserCharacter]);
     }
@@ -113,15 +117,15 @@ class CharacterController extends Controller
             // 轉換成角色碎片
             $reward = [
                 'item_id' => 199,
-                'amount'  => 1,
+                'amount' => 1,
             ];
         }
 
         return response()->json([
             'data' => [
-                'character'   => $userCharacter->makeHidden(['uid']),
+                'character' => $userCharacter->makeHidden(['uid']),
                 'already_has' => $alreadyHas,
-                'reward'      => $reward, // null 代表拿到新角色，不是碎片
+                'reward' => $reward, // null 代表拿到新角色，不是碎片
             ],
         ]);
     }
@@ -133,45 +137,7 @@ class CharacterController extends Controller
             return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0005'), 422);
         }
 
-        $deployCharAry = UserCharacter::where('uid', $uid)
-            ->where('has_use', 1)
-            ->orderByRaw('CAST(slot_index AS UNSIGNED)')
-            ->get(['character_id', 'star_level', 'slot_index'])
-            ->map(fn($c) => [
-                'slot_index'   => (int) $c->slot_index,
-                'character_id' => (int) $c->character_id,
-                'star_level'   => (int) $c->star_level,
-            ])
-            ->toArray();
-
-        $undeployCharAry = UserCharacter::where('uid', $uid)
-            ->where('has_use', 0)
-            ->join('gddb_surgame_heroes', 'user_characters.character_id', '=', 'gddb_surgame_heroes.unique_id')
-            ->get(['user_characters.character_id', 'user_characters.star_level', 'gddb_surgame_heroes.rarity'])
-            ->sort(function ($a, $b) {
-                // 定義稀有度排序 SSR > SR > R
-                $rarityOrder = ['SSR' => 3, 'SR' => 2, 'R' => 1];
-                $rarityA     = $rarityOrder[$a->rarity] ?? 0;
-                $rarityB     = $rarityOrder[$b->rarity] ?? 0;
-                if ($rarityA === $rarityB) {
-                    // 稀有度相同時，依 star_level 排序（高到低）
-                    return $b->star_level <=> $a->star_level;
-                }
-                // 稀有度排序（高到低）
-                return $rarityB <=> $rarityA;
-            })
-            ->map(fn($c) => [
-                'character_id' => $c->character_id,
-                'star_level'   => $c->star_level,
-                'rarity'       => $c->rarity,
-            ])
-            ->values()
-            ->toArray();
-
-        $userCharacterAry = [
-            'deploy'   => $deployCharAry,
-            'undeploy' => $undeployCharAry,
-        ];
+        $userCharacterAry = CharacterService::getUserCharacterList($uid);
 
         return response()->json(['data' => $userCharacterAry]);
     }
@@ -190,7 +156,7 @@ class CharacterController extends Controller
             return response()->json(ErrorService::errorCode(__METHOD__, 'USER:0001'), 422);
         }
         $cloneCurrentUser = $currentUser->replicate();
-        $nextLevel        = $currentUser->main_character_level + 1;
+        $nextLevel = $currentUser->main_character_level + 1;
 
         // 取得升級資訊
         $playerLvUp = PlayerLvUp::where('account_lv', $nextLevel)->first();
@@ -199,15 +165,16 @@ class CharacterController extends Controller
         }
 
         // 檢查是否可以升級
-        $checkResult = (new CharacterService())->mainCharacterLvUpCheck($currentUser, $playerLvUp);
+        $checkResult = (new CharacterService)->mainCharacterLvUpCheck($currentUser, $playerLvUp);
         if ($checkResult['success'] === false) {
-            $errorMsg            = ErrorService::errorCode(__METHOD__, 'PlayerLevelUp:0002');
+            $errorMsg = ErrorService::errorCode(__METHOD__, 'PlayerLevelUp:0002');
             $errorMsg['message'] = $checkResult['message'];
+
             return response()->json($errorMsg, 422);
         }
 
         // 升級主角
-        $result = (new CharacterService())->mainCharacterLvUp($currentUser);
+        $result = (new CharacterService)->mainCharacterLvUp($currentUser);
         if (! $result) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'PlayerLevelUp:0003'), 422);
         }
@@ -223,7 +190,7 @@ class CharacterController extends Controller
             $reward = [];
         }
         $newReward = [];
-        $map       = [
+        $map = [
             0 => 'item_id',
             1 => 'amount',
         ];
@@ -238,7 +205,7 @@ class CharacterController extends Controller
         }
 
         if (! empty($newReward)) {
-            $userItemService = new UserItemService();
+            $userItemService = new UserItemService;
             $userItemService->addItem(50, $currentUser->id, $currentUser->uid, $newReward['item_id'], $newReward['amount'], 1, '主角升級獎勵');
         }
 
@@ -250,6 +217,7 @@ class CharacterController extends Controller
     public function getStarRequirements()
     {
         $data = CharacterStarRequirements::all();
+
         return $this->makeJson(true, $data, '查詢成功');
     }
 
@@ -257,6 +225,7 @@ class CharacterController extends Controller
     public function getLevelRequirements()
     {
         $data = LevelRequirements::all();
+
         return $this->makeJson(true, $data, '查詢成功');
     }
 
@@ -279,7 +248,7 @@ class CharacterController extends Controller
 
         // 重置等級
         $surgameInfo->main_character_level = 1;
-        $surgameInfo->current_exp          = 500;
+        $surgameInfo->current_exp = 500;
         $surgameInfo->save();
 
         return response()->json(['success' => true, 'message' => '主角等級已重置'], 200);

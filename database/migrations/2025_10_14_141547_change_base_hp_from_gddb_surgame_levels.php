@@ -11,8 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('user_slot_equipments', function (Blueprint $table) {
-            $table->unsignedInteger('success_rate')->default(40)->after('refine_level')->comment('精煉成功率(萬分比)');
+        Schema::table('gddb_surgame_levels', function (Blueprint $table) {
+            // base_hp 最大值可以為100000000000000000
+            $table->unsignedBigInteger('base_hp')->change();
         });
     }
 
@@ -21,8 +22,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('user_slot_equipments', function (Blueprint $table) {
-            $table->dropColumn('success_rate');
+        Schema::table('gddb_surgame_levels', function (Blueprint $table) {
+            $table->integer('base_hp')->change();
         });
     }
 };

@@ -9,6 +9,7 @@ use App\Models\UserEquipmentSession;
 use App\Models\Users;
 use App\Models\UserSlotEquipment;
 use App\Service\DeploySlotService;
+use App\Service\CharacterService;
 use App\Service\ErrorService;
 use App\Service\UserItemService;
 use Illuminate\Http\Request;
@@ -27,7 +28,7 @@ class DeploySlotController extends Controller
     }
 
     // 取得特定人的 slot，若無則自動建立
-    public function showItems(Request $request, $uid = null, DeploySlotService $svc)
+    public function showItems(Request $request, $uid, DeploySlotService $svc)
     {
         // 確認玩家存在
         $user = Users::where('uid', $uid)->first();
@@ -84,6 +85,7 @@ class DeploySlotController extends Controller
                 } else {
                     $refineSuccessRate = 40; // 預設 40%
                 }
+
                 return [
                     'equip_index' => $position,
                     'equipment_uid' => (int) ($equipment->id ?? -1),  // 沒裝備 → 0
@@ -101,6 +103,10 @@ class DeploySlotController extends Controller
                 'runes' => [],
             ];
         })->values()->all();
+
+        // 強制設定主角在0號位置
+        $svc = app(DeploySlotService::class);
+        $svc->forceSetMainCharacter($uid);
 
         return response()->json(['data' => $response]);
     }
@@ -144,21 +150,21 @@ class DeploySlotController extends Controller
         }
 
         // 材料檢查
-        // $checkResult = DeploySlotService::checkLvMaterial($targetLv, $user);
-        // if ($checkResult === false) {
-        //     return response()->json(ErrorService::errorCode(__METHOD__, 'DeploySlot:0006'), 422);
-        // }
+        $checkResult = DeploySlotService::checkLvMaterial($targetLv, $user);
+        if ($checkResult === false) {
+            return response()->json(ErrorService::errorCode(__METHOD__, 'DeploySlot:0006'), 422);
+        }
 
         // 隊伍等級檢查
-        // $allSlots = DeploySlot::where('uid', $uid)->get();
-        // $levels   = $allSlots->pluck('level', 'position')->toArray();
+        $allSlots = DeploySlot::where('uid', $uid)->get();
+        $levels = $allSlots->pluck('level', 'position')->toArray();
 
-        // $minimumLv = min($levels);
-        // $maximumLv = max($levels);
+        $minimumLv = min($levels);
+        $maximumLv = max($levels);
 
-        // if (($maximumLv - $minimumLv) > 5 && ($levels[$index] ?? 1) >= $maximumLv) {
-        //     return response()->json(ErrorService::errorCode(__METHOD__, 'DeploySlot:0007'), 422);
-        // }
+        if (($maximumLv - $minimumLv) > 5 && ($levels[$index] ?? 1) >= $maximumLv) {
+            return response()->json(ErrorService::errorCode(__METHOD__, 'DeploySlot:0007'), 422);
+        }
 
         // 遞增等級
         $slot->increment('level', 1);
@@ -168,17 +174,19 @@ class DeploySlotController extends Controller
 
         // 組裝舊版格式
         $response = [];
-        for ($i = 0; $i < 5; $i++) {
-            $slotRow = $allSlots->firstWhere('position', $i);
-            $response["slot_{$i}_level"] = $slotRow->level ?? 1;
-            $response["slot_{$i}_character_id"] = $slotRow->character_id ?? null;
-        }
+        $slotRow = $allSlots->firstWhere('position', $index);
+        $response['slot_index'] = $slotRow->position;
+        $response['slot_level'] = $slotRow->level ?? 1;
+
+        // 強制設定主角在0號位置
+        $svc = app(DeploySlotService::class);
+        $svc->forceSetMainCharacter($uid);
 
         return response()->json(['data' => $response]);
     }
 
     // 角色上陣
-    public function slotUpdate(Request $request)
+    public function slotUpdate(Request $request, DeploySlotService $svc)
     {
         $uid = auth()->guard('api')?->user()?->uid;
         if (empty($uid)) {
@@ -265,6 +273,8 @@ class DeploySlotController extends Controller
             $response["slot_{$i}_level"] = $slotRow->level ?? 1;
             $response["slot_{$i}_character_id"] = $slotRow->character_id ?? null;
         }
+
+        $response= CharacterService::getUserCharacterList($uid);
 
         return response()->json(['data' => $response]);
     }
@@ -356,7 +366,10 @@ class DeploySlotController extends Controller
                 return response()->json(ErrorService::errorCode(__METHOD__, 'EQUIPMENT:0002'), 422);
             }
             // 單件升級
-            $svc->enhanceEquipment($slotId, $equipIndex);
+            $ok = $svc->enhanceEquipment($uid, $slotId, $equipIndex);
+            if ($ok['success'] === 0 && isset($ok['error_code'])) {
+                return response()->json(ErrorService::errorCode(__METHOD__, $ok['error_code']), 422);
+            }
             $userEquipment = UserSlotEquipment::with('deploySlot')->where('uid', $uid)
                 ->where('slot_id', $slotId)
                 ->where('position', $equipIndex)
@@ -370,7 +383,7 @@ class DeploySlotController extends Controller
             $upgradeInfo = $svc->formatShowEnhanceData($userEquipment->refresh());
         } else {
             // 一鍵升級
-            $ok = $svc->enhanceEquipment($slotId);
+            $ok = $svc->enhanceEquipment($uid, $slotId);
             if ($ok['success'] === 0 && isset($ok['error_code'])) {
                 return response()->json(ErrorService::errorCode(__METHOD__, $ok['error_code']), 422);
             }
@@ -380,7 +393,7 @@ class DeploySlotController extends Controller
             $upgradeInfo = $svc->formatShowEnhanceData($slots, 'multiple');
         }
         $result['upgrade_info'] = $upgradeInfo;
-        $result['inventory_info'] = $userItemSvc->getFormattedItems($uid, [101,191]);
+        $result['inventory_info'] = $userItemSvc->getFormattedItems($uid, [101, 191]);
         if ($result) {
             return response()->json(['data' => $result], 200);
         }

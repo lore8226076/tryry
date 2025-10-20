@@ -3,17 +3,22 @@
 namespace App\Http\Controllers\Api;
 
 use App\Service\ErrorService;
+use App\Service\UserJourneyService;
 use App\Service\StaminaService;
 use App\Service\UserJourneyChallengeService;
+use App\Service\TaskService;
 use Illuminate\Http\Request;
 
 class CharacterStarChallengeController extends Controller
 {
     protected $challengeService;
+    protected $journeyService;
 
-    public function __construct(UserJourneyChallengeService $challengeService, Request $request)
+    public function __construct(UserJourneyService $journeyService,UserJourneyChallengeService $challengeService, Request $request)
     {
         $this->challengeService = $challengeService;
+        $this->journeyService = $journeyService;
+
         $origin = $request->header('Origin');
         $referer = $request->header('Referer');
         $referrerDomain = parse_url($origin, PHP_URL_HOST) ?? parse_url($referer, PHP_URL_HOST);
@@ -41,7 +46,14 @@ class CharacterStarChallengeController extends Controller
         }
         $stamina = StaminaService::getStamina($uid);
 
-        return response()->json(['data' => ['success' => true, 'stamina' => $stamina]]);
+          // 任務Service
+        $taskService = new TaskService();
+          // 本次登入是否有完成任務
+        $completedTask       = $taskService->getCompletedTasks($uid);
+        $formattedTaskResult = $taskService->formatCompletedTasks($completedTask);
+
+
+        return response()->json(['data' => ['success' => true, 'stamina' => $stamina, 'finishedTask' => $formattedTaskResult]]);
     }
 
     /**
@@ -49,14 +61,20 @@ class CharacterStarChallengeController extends Controller
      */
     public function update(Request $request)
     {
-        $uid = $this->resolveUid($request);
-
+        $user = $this->resolveUid($request, true);
+        $uid = $user?->uid;
         if (! $uid) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0005'), 422);
         }
 
-        $chapterId = $request->input('chapter_id');
+        $chapterId = $request->input('chapter_id', 1);
         $earnedStars = $this->normalizeEarnedStars($request->input('earned_stars'));
+
+        // 隨機掉落物
+        $items = $request->input('drop_items', []);
+        if (is_string($items)) {
+            $items = json_decode($items, true);
+        }
 
         if (! is_numeric($chapterId) || (int) $chapterId <= 0) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'Journey:0001'), 422);
@@ -67,11 +85,15 @@ class CharacterStarChallengeController extends Controller
         }
 
         try {
-            $result = $this->challengeService->updateChallengeProgress(
+            $progress = $this->challengeService->updateChallengeProgress(
                 $uid,
                 (int) $chapterId,
                 $earnedStars
             );
+
+            $claim = $this->journeyService->claimReward($user, $items);
+            $result = $progress;
+            $result['rewards'] = $items;
         } catch (\InvalidArgumentException $exception) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'StarChallenge:0002'), 422);
         }
@@ -152,11 +174,14 @@ class CharacterStarChallengeController extends Controller
     }
 
     /**
-     * 解析請求中的玩家 UID
+     * 解析請求來源的 UID
      */
-    protected function resolveUid(Request $request): ?int
+    protected function resolveUid(Request $request, $getUser = false)
     {
         $authUser = auth()->guard('api')->user();
+        if ($getUser) {
+            return $authUser;
+        }
 
         if ($authUser?->uid) {
             return (int) $authUser->uid;

@@ -93,10 +93,75 @@ class TreasureController extends Controller
         }
     }
 
-    // 一鍵合成
+        // 一鍵合成
     public function autoFuse(Request $request)
     {
-        return response()->json(['data' => []]);
+        $user = $this->resolveUid($request);
+
+        if (! $user) {
+            return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0005'), 422);
+        }
+
+        try {
+            $result = $this->treasureSvc->autoFuse($user);
+        } catch (RuntimeException $e) {
+            $errorCode = $e->getMessage();
+
+            if (! is_string($errorCode) || ! str_contains($errorCode, ':')) {
+                $errorCode = 'TREASURE:0006';
+            }
+
+            return response()->json(ErrorService::errorCode(__METHOD__, $errorCode), 422);
+        } catch (\Throwable $throwable) {
+            \Log::error('自動合成失敗', [
+                'uid' => $user->uid ?? null,
+                'error' => $throwable->getMessage(),
+            ]);
+
+            return response()->json(ErrorService::errorCode(__METHOD__, 'TREASURE:0006'), 422);
+        }
+
+        $available = (bool) ($result['available'] ?? false);
+        $consumedMap = $result['consumed'] ?? [];
+        $obtainedMap = $result['obtained'] ?? [];
+        $details = $result['details'] ?? [];
+
+        $consumed = [];
+        foreach ($consumedMap as $itemId => $amount) {
+            $consumed[] = [
+                'item_id' => (int) $itemId,
+                'amount' => (int) $amount,
+            ];
+        }
+
+        $obtained = [];
+        foreach ($obtainedMap as $itemId => $amount) {
+            $obtained[] = [
+                'item_id' => (int) $itemId,
+                'amount' => (int) $amount,
+            ];
+        }
+
+        $involvedItemIds = array_unique(array_merge(
+            array_keys($consumedMap),
+            array_keys($obtainedMap)
+        ));
+
+        $inventory = [];
+        if (! empty($involvedItemIds)) {
+            $inventory = $this->userItemSvc->getFormattedItems($user->uid, $involvedItemIds);
+        }
+
+        $payload = [
+            'available' => $available,
+            'message' => $result['message'] ?? null,
+            'details' => $details,
+            'consumed' => $consumed,
+            'obtained' => $obtained,
+            'inventory' => $inventory,
+        ];
+
+        return response()->json(['data' => $payload]);
     }
 
     /** 退回道具 */
@@ -120,6 +185,7 @@ class TreasureController extends Controller
         if (! $check['success'] == 1) {
             $errorMsg = ErrorService::errorCode(__METHOD__, $check['error_code']);
             $errorMsg['need_item_id'] = 100;
+
             return response()->json($errorMsg, 422);
         }
         $result = $this->treasureSvc->reset($user, $itemId);

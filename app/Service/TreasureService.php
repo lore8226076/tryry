@@ -5,11 +5,138 @@ namespace App\Service;
 use App\Models\GddbItems;
 use App\Models\GddbSurgameTreasure as GddbTreasure;
 use App\Models\Users;
+use App\Models\UserItems;
 use DB;
 use RuntimeException;
 
 class TreasureService
 {
+    public function autoFuse(Users $user): array
+    {
+        $treasureMeta = GddbTreasure::query()
+            ->where('quality_level', '<', 3)
+            ->get([
+                'item_id',
+                'quality_level',
+                'need_two_material',
+            ])
+            ->keyBy('item_id');
+
+        if ($treasureMeta->isEmpty()) {
+            return [
+                'available' => false,
+                'message' => '無法進行一鍵合成',
+                'details' => [],
+                'consumed' => [],
+                'obtained' => [],
+            ];
+        }
+
+        return DB::transaction(function () use ($user, $treasureMeta) {
+            $userItems = UserItems::query()
+                ->where('user_id', $user->id)
+                ->whereIn('item_id', $treasureMeta->keys())
+                ->lockForUpdate()
+                ->get(['item_id', 'qty']);
+
+            $details = []; // 合成明細
+            $consumed = []; // 消耗道具
+            $obtained = []; // 獲得道具
+
+            foreach ($userItems as $item) {
+                $meta = $treasureMeta->get($item->item_id);
+                if (! $meta) {
+                    continue;
+                }
+
+                $requiredMaterials = $meta->need_two_material ? 3 : 2;
+                $ownedQty = (int) $item->qty;
+                if ($ownedQty < $requiredMaterials) {
+                    continue;
+                }
+
+                $fuseCount = intdiv($ownedQty, $requiredMaterials);
+                if ($fuseCount <= 0) {
+                    continue;
+                }
+
+                $targetItemId = $this->getUpgradeItemIds($item->item_id);
+                if (! $targetItemId) {
+                    continue;
+                }
+
+                $sourceItemId = (int) $item->item_id;
+                $targetItemId = (int) $targetItemId;
+                $consumedQty = $requiredMaterials * $fuseCount;
+
+                $details[] = [
+                    'source_item_id' => $sourceItemId,
+                    'target_item_id' => $targetItemId,
+                    'materials_required' => $requiredMaterials,
+                    'fuse_count' => $fuseCount,
+                    'consumed_total' => $consumedQty,
+                    'quality_level' => (int) $meta->quality_level,
+                ];
+
+                $consumed[$sourceItemId] = ($consumed[$sourceItemId] ?? 0) + $consumedQty;
+                $obtained[$targetItemId] = ($obtained[$targetItemId] ?? 0) + $fuseCount;
+            }
+
+            if (empty($details)) {
+                return [
+                    'available' => false,
+                    'message' => self::AUTO_FUSE_DISABLED_MESSAGE,
+                    'details' => [],
+                    'consumed' => [],
+                    'obtained' => [],
+                ];
+            }
+
+            $userItemSvc = app(UserItemService::class);
+
+            foreach ($consumed as $itemId => $qty) {
+                $itemId = (int) $itemId;
+                $qty = (int) $qty;
+
+                $check = $userItemSvc->checkResource($user->id, $itemId, $qty);
+                if (($check['success'] ?? 0) !== 1) {
+                    throw new RuntimeException($check['error_code'] ?? 'TREASURE:0006');
+                }
+
+                $removeResult = UserItemService::removeItem('91', $user->id, $user->uid, $itemId, $qty, 1, '寶物一鍵合成消耗');
+                if (($removeResult['success'] ?? 0) === 0) {
+                    throw new RuntimeException($removeResult['error_code'] ?? 'TREASURE:0006');
+                }
+            }
+
+            foreach ($obtained as $itemId => $qty) {
+                $itemId = (int) $itemId;
+                $qty = (int) $qty;
+
+                $addResult = UserItemService::addItem('91', $user->id, $user->uid, $itemId, $qty, 1, '寶物一鍵合成獲得');
+                if (($addResult['success'] ?? 0) === 0) {
+                    throw new RuntimeException($addResult['error_code'] ?? 'TREASURE:0006');
+                }
+            }
+
+            array_walk($consumed, static function (&$qty) {
+                $qty = (int) $qty;
+            });
+
+            array_walk($obtained, static function (&$qty) {
+                $qty = (int) $qty;
+            });
+
+            return [
+                'available' => true,
+                'message' => null,
+                'details' => $details,
+                'consumed' => $consumed,
+                'obtained' => $obtained,
+            ];
+        }, 3);
+    }
+
     /**
      * 寶物合成
      *
@@ -49,7 +176,7 @@ class TreasureService
         // 取得可退的
         $refundItemId = $this->getRefundItemId($downgradeItemId);
 
-        return DB::transaction(function () use ($user, $itemId, $downgradeItemId, $refundItemId, $refundTwoMaterial) {
+        return DB::transaction(function () use ($user, $itemId, $refundItemId, $refundTwoMaterial) {
             // 1) 扣除當前道具
             $deductResult = $this->deductItem($user, $itemId, true);
             if (! $deductResult['success']) {
@@ -164,7 +291,10 @@ class TreasureService
             return null; // 找不到當前寶物
         }
 
-        $upgradeItemIds = GddbTreasure::where('quality_level', $cItem->quality_level + 1)->first()?->item_id ?? null;
+        $upgradeItemIds = GddbTreasure::where('quality_level', $cItem->quality_level + 1)
+        ->where('element', $cItem->element)
+        ->where('target_hero', $cItem->target_hero)
+        ->first()?->item_id ?? null;
 
         return $upgradeItemIds;
     }

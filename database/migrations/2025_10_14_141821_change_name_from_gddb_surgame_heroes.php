@@ -11,8 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('user_slot_equipments', function (Blueprint $table) {
-            $table->unsignedInteger('success_rate')->default(40)->after('refine_level')->comment('精煉成功率(萬分比)');
+        Schema::table('gddb_surgame_heroes', function (Blueprint $table) {
+            // name可以為null
+            $table->string('name')->nullable()->change();
         });
     }
 
@@ -21,8 +22,9 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('user_slot_equipments', function (Blueprint $table) {
-            $table->dropColumn('success_rate');
+        Schema::table('gddb_surgame_heroes', function (Blueprint $table) {
+            // name不可以為null
+            $table->string('name')->nullable(false)->change();
         });
     }
 };

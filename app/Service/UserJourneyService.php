@@ -43,7 +43,7 @@ class UserJourneyService
             $record->save();
 
             return [
-                'chapter_id' => (int) $record->current_journey_id,
+                'chapter_id' => (int) $record->current_journey_id ?? 1,
                 'wave' => (int) $record->current_wave,
             ];
         });
@@ -280,7 +280,7 @@ class UserJourneyService
             }
             foreach ($rewards as $reward) {
                 $itemId = $reward['item_id'];
-                $amount = $reward['qty'];
+                $amount = $reward['amount'];
                 $result = UserItemService::addItem(
                     UserItemLogs::TYPE_SYSTEM,
                     $user->id,

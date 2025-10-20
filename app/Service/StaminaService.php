@@ -5,6 +5,8 @@ namespace App\Service;
 use App\Models\Users;
 use App\Models\UserStaminaLog;
 use App\Models\UserStatus;
+use App\Service\TaskService;
+use App\Service\UserStatsService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -346,6 +348,17 @@ class StaminaService
         // 4. 執行扣除
         self::changeStamina($uid, -$cost, $remark, 'manual');
 
-        return ['success' => 1, 'error_code' => ''];
+        //============ 任務系統 ============
+        $user = Users::where('uid', $uid)->first();
+        // 任務Service
+        $taskService = new TaskService();
+        // 紀錄系統任務
+        $userStatsService = new UserStatsService($taskService);
+        $userStatsService->updateByKeyword($user, 'stamina');
+        // 玩家任務
+        $taskStatsService = new UserStatsService($taskService, $taskService->keywords(), [$taskService, 'calculateStat']);
+        $taskStatsService->updateByKeyword($user, 'stamina');
+
+        return ['success' => 1, 'error_code' => '', 'data'=>$cost];
     }
 }

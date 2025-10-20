@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Service\ErrorService;
 use App\Service\StaminaService;
 use App\Service\UserJourneyService;
+use App\Service\TaskService;
 use Illuminate\Http\Request;
 
 class CharacterJourneyController extends Controller
@@ -43,47 +44,13 @@ class CharacterJourneyController extends Controller
 
         $stamina = StaminaService::getStamina($uid);
 
-        return response()->json(['data' => ['success' => true, 'stamina' => $stamina]]);
-    }
+        // 任務Service
+        $taskService = new TaskService();
+          // 本次登入是否有完成任務
+        $completedTask       = $taskService->getCompletedTasks($uid);
+        $formattedTaskResult = $taskService->formatCompletedTasks($completedTask);
 
-    /**
-     * 領取主線獎勵 (檢查邏輯待補)
-     */
-    public function claimMainReward(Request $request)
-    {
-        $user = $this->resolveUid($request, true);
-        $uid = $user?->uid;
-        if (! $uid) {
-            return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0005'), 422);
-        }
-        $items = $request->input('items', []);
-        // 轉成陣列
-        if (is_string($items)) {
-            $items = json_decode($items, true);
-        }
-
-        try {
-            $result = $this->journeyService->claimReward($user, $items);
-        } catch (\RuntimeException $exception) {
-            $code = $exception->getMessage();
-
-            if (is_string($code) && strpos($code, ':') !== false) {
-                return response()->json(ErrorService::errorCode(__METHOD__, $code), 422);
-            }
-
-            return response()->json(ErrorService::errorCode(__METHOD__, 'SYSTEM:0003'), 422);
-        } catch (\Throwable $throwable) {
-            \Log::error('主線獎勵領取失敗', [
-                'uid' => $uid,
-                'message' => $throwable->getMessage(),
-            ]);
-
-            return response()->json(ErrorService::errorCode(__METHOD__, 'SYSTEM:0003'), 422);
-        }
-
-        $result = ['success' => true, 'items' => $items];
-
-        return response()->json(['data' => $result]);
+        return response()->json(['data' => ['success' => true, 'stamina' => $stamina, 'finishedTask' => $formattedTaskResult]]);
     }
 
     /**
@@ -91,14 +58,19 @@ class CharacterJourneyController extends Controller
      */
     public function update(Request $request)
     {
-        $uid = $this->resolveUid($request);
-
+        $user = $this->resolveUid($request, true);
+        $uid = $user?->uid;
         if (! $uid) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0005'), 422);
         }
 
-        $chapterId = $request->input('chapter_id');
+        $chapterId = $request->input('chapter_id', 1);
         $wave = $request->input('wave');
+        $items = $request->input('drop_items', []);
+        // 轉成陣列
+        if (is_string($items)) {
+            $items = json_decode($items, true);
+        }
 
         if (! is_numeric($chapterId) || (int) $chapterId <= 0) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'JOURNEY:0001'), 422);
@@ -114,16 +86,15 @@ class CharacterJourneyController extends Controller
         }
 
         try {
-            $progress = $this->journeyService->updateJourneyProgress(
-                $uid,
-                (int) $chapterId,
-                (int) $wave
-            );
+            $progress = $this->journeyService->updateJourneyProgress($uid, (int) $chapterId, (int) $wave);
+            $claim = $this->journeyService->claimReward($user, $items);
+            $result = $progress;
+            $result['rewards'] = $items;
         } catch (\InvalidArgumentException $exception) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'SYSTEM:0002'), 422);
         }
 
-        return response()->json(['data' => $progress]);
+        return response()->json(['data' => $result]);
     }
 
     /**
@@ -172,7 +143,7 @@ class CharacterJourneyController extends Controller
             return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0005'), 422);
         }
 
-        $chapterId = $request->input('chapter_id');
+        $chapterId = $request->input('chapter_id', 1);
 
         if (! is_numeric($chapterId) || (int) $chapterId <= 0) {
             return response()->json(ErrorService::errorCode(__METHOD__, 'JOURNEY:0001'), 422);

@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Http\Controllers\Api;
 
 use App\Models\CharacterDeploySlot;
@@ -27,7 +28,6 @@ use App\Service\UserService;
 use App\Service\UserStatsService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Validator;
 
@@ -40,8 +40,8 @@ class AuthController extends Controller
      */
     public function __construct(Request $request)
     {
-        $origin         = $request->header('Origin');
-        $referer        = $request->header('Referer');
+        $origin = $request->header('Origin');
+        $referer = $request->header('Referer');
         $referrerDomain = parse_url($origin, PHP_URL_HOST) ?? parse_url($referer, PHP_URL_HOST);
         if ($referrerDomain != config('services.API_PASS_DOMAIN')) {
             $this->middleware('auth:api', ['except' => ['register', 'firebase_login', 'create_user_login', 'uid_login', 'mac_login', 'login', 'checkRegistrEmailValid', 'sendEmailValid', 'web_firebase_login', 'userSurgameInfo']]);
@@ -51,13 +51,13 @@ class AuthController extends Controller
     public function firebase_login(Request $request)
     {
         $data = $request->input();
-        \Log::info('[firebase_login] 請求資料: ' . json_encode($data));
+        \Log::info('[firebase_login] 請求資料: '.json_encode($data));
 
         // 驗證必要欄位
         $requiredFields = ['firebase_uid', 'firebase_name', 'firebase_providerId', 'firebase_accessToken'];
         foreach ($requiredFields as $field) {
             if (empty($data[$field])) {
-                return response()->json(['message' => __($field . '錯誤'), 'field' => $field], 422);
+                return response()->json(['message' => __($field.'錯誤'), 'field' => $field], 422);
             }
         }
 
@@ -68,23 +68,23 @@ class AuthController extends Controller
         if ($user && $user->trashed()) {
             $user->restore();
             $this->restoreUserPet($user);
-            \Log::info('[firebase_login] 從軟刪除恢復使用者: ' . $user->uid);
+            \Log::info('[firebase_login] 從軟刪除恢復使用者: '.$user->uid);
         }
 
         // 建立新帳號
         if (! $user) {
-            $user                        = new Users;
-            $user->account               = base64_encode(Carbon::now()->timestamp . rand(10000, 99999));
-            $user->password              = Carbon::now()->timestamp . rand(10000, 99999);
-            $user->email                 = $data['email'] ?? null;
-            $user->firebase_name         = $data['firebase_name'];
-            $user->firebase_uid          = $data['firebase_uid'];
-            $user->firebase_provider_id  = $data['firebase_providerId'];
+            $user = new Users;
+            $user->account = base64_encode(Carbon::now()->timestamp.rand(10000, 99999));
+            $user->password = Carbon::now()->timestamp.rand(10000, 99999);
+            $user->email = $data['email'] ?? null;
+            $user->firebase_name = $data['firebase_name'];
+            $user->firebase_uid = $data['firebase_uid'];
+            $user->firebase_provider_id = $data['firebase_providerId'];
             $user->firebase_access_token = $data['firebase_accessToken'];
-            $user->firebase_photo_url    = $data['firebase_photoURL'] ?? null;
-            $user->is_active             = 1;
+            $user->firebase_photo_url = $data['firebase_photoURL'] ?? null;
+            $user->is_active = 1;
             $user->save();
-            \Log::info('[firebase_login] 新增使用者成功: ' . json_encode($user));
+            \Log::info('[firebase_login] 新增使用者成功: '.json_encode($user));
 
             $message = __('創建並登入成功');
         } else {
@@ -94,13 +94,13 @@ class AuthController extends Controller
 
             // 補更新欄位
             $user->firebase_access_token = $data['firebase_accessToken'];
-            $user->firebase_photo_url    = $data['firebase_photoURL'] ?? $user->firebase_photo_url;
+            $user->firebase_photo_url = $data['firebase_photoURL'] ?? $user->firebase_photo_url;
 
             if ($user->isDirty()) {
                 $user->save();
-                \Log::info('[firebase_login] 使用者資訊已更新: ' . json_encode($user->getDirty()));
+                \Log::info('[firebase_login] 使用者資訊已更新: '.json_encode($user->getDirty()));
             } else {
-                \Log::info('[firebase_login] 使用者無需更新: ' . $user->uid);
+                \Log::info('[firebase_login] 使用者無需更新: '.$user->uid);
             }
 
             $message = __('登入成功');
@@ -109,16 +109,16 @@ class AuthController extends Controller
         // 初次登入贈送邏輯
         if (empty($user->new_give)) {
             $result = UserService::init_create_give($user->id);
-            \Log::info('[firebase_login] 初次登入贈送結果: ' . json_encode($result));
+            \Log::info('[firebase_login] 初次登入贈送結果: '.json_encode($result));
         }
 
         // 發 Token
         $token = auth()->guard('api')->login($user);
         UserService::addLoginLog($user->uid, $request->ip(), 'firebase', $data);
-        \Log::info('[firebase_login] 登入成功 UID: ' . $user->uid);
+        \Log::info('[firebase_login] 登入成功 UID: '.$user->uid);
 
         // 任務處理
-        $taskService      = new TaskService();
+        $taskService = new TaskService;
         $userStatsService = new UserStatsService($taskService);
         $taskStatsService = new UserStatsService($taskService, $taskService->keywords(), [$taskService, 'calculateStat']);
 
@@ -127,7 +127,7 @@ class AuthController extends Controller
         $taskStatsService->updateByKeyword($user, 'login_event');
         $taskStatsService->updateByKeyword($user, 'newbie');
 
-        $completedTask       = $taskService->getCompletedTasks($user->uid);
+        $completedTask = $taskService->getCompletedTasks($user->uid);
         $formattedTaskResult = $taskService->formatCompletedTasks($completedTask);
 
         // 創建surgame
@@ -150,29 +150,39 @@ class AuthController extends Controller
             $this->initSlotEquip($user->uid);
         }
 
+        // 初始化陣位角色
+        $this->initializeUserDeploySlots($user->uid);
+
+        // 強制設定主角在0號位置
+        $svc = app(DeploySlotService::class);
+        $checkMain = $svc->checkAndSetMainCharacter($user->uid);
+        if (! $checkMain) {
+            $svc->forceSetMainCharacter($user->uid);
+        }
+
         // 檢查是否需要初始化天賦資料
-        $talentService = new TalentService();
+        $talentService = new TalentService;
         if (! $talentService->checkTalentPoolExists($user->uid, 1)) {
             $talentService->createTalentPool($user->uid, 1);
         }
 
         return response()->json([
-            'message'      => $message,
-            'data'         => $this->createNewToken($token),
+            'message' => $message,
+            'data' => $this->createNewToken($token),
             'finishedTask' => $formattedTaskResult,
         ], 200);
     }
 
-    //220250114 後續已經沒有使用
+    // 220250114 後續已經沒有使用
     public function create_user_login(Request $request)
     {
-        $user           = new Users;
-        $user->account  = Carbon::now()->timestamp . rand(10000, 99999);
-        $user->password = Carbon::now()->timestamp . rand(10000, 99999);
+        $user = new Users;
+        $user->account = Carbon::now()->timestamp.rand(10000, 99999);
+        $user->password = Carbon::now()->timestamp.rand(10000, 99999);
         $user->save();
 
-        $user           = Users::find($user->id);
-        $user->account  = base64_encode($user->uid);
+        $user = Users::find($user->id);
+        $user->account = base64_encode($user->uid);
         $user->password = $user->uid;
         $user->new_give = 1;
         $user->save();
@@ -187,7 +197,7 @@ class AuthController extends Controller
 
             return response()->json([
                 'message' => __('創建並登入成功'),
-                'data'    => $this->createNewToken($token),
+                'data' => $this->createNewToken($token),
             ], 200);
         }
     }
@@ -215,7 +225,7 @@ class AuthController extends Controller
 
         $userEquipment = UserEquipments::where('user_id', $user->id)->first();
         if (empty($userEquipment)) {
-            $userEquipment          = new UserEquipments;
+            $userEquipment = new UserEquipments;
             $userEquipment->user_id = $user->id;
             $userEquipment->save();
         }
@@ -229,9 +239,9 @@ class AuthController extends Controller
         $token = auth()->guard('api')->login($user);
         UserService::addLoginLog($user->uid, $request->ip(), 'uid', $data);
 
-        //============ 任務系統 ============
+        // ============ 任務系統 ============
         // 任務Service
-        $taskService = new TaskService();
+        $taskService = new TaskService;
         // 建立今天的每日任務
         $taskService->autoAssignTasks($user->uid);
         // 紀錄系統任務
@@ -243,9 +253,9 @@ class AuthController extends Controller
         $taskStatsService->updateByKeyword($user, 'login_event');
         $taskStatsService->updateByKeyword($user, 'newbie');
         // 本次登入是否有完成任務
-        $completedTask       = $taskService->getCompletedTasks($user->uid);
+        $completedTask = $taskService->getCompletedTasks($user->uid);
         $formattedTaskResult = $taskService->formatCompletedTasks($completedTask);
-        //============ 任務系統 ============
+        // ============ 任務系統 ============
 
         // 創建surgame
         if (empty(UserSurGameInfo::where('uid', $user->uid)->first())) {
@@ -254,7 +264,7 @@ class AuthController extends Controller
 
         // 給予軍階任務
         $userSurgameInfo = UserSurGameInfo::where('uid', $user->uid)->first();
-        $gradeSerivce    = new GradeTaskService();
+        $gradeSerivce = new GradeTaskService;
         $gradeSerivce->autoAsignGradeTask($userSurgameInfo);
 
         // 檢查是否有主角Surgame資料
@@ -271,8 +281,19 @@ class AuthController extends Controller
         if (! $this->checkUserDeploySlotEquip($user->uid)) {
             $this->initSlotEquip($user->uid);
         }
+
+        // 初始化陣位角色
+        $this->initializeUserDeploySlots($user->uid);
+
+        // 強制設定主角在0號位置
+        $svc = app(DeploySlotService::class);
+        $checkMain = $svc->checkAndSetMainCharacter($user->uid);
+        if (! $checkMain) {
+            $svc->forceSetMainCharacter($user->uid);
+        }
+
         // 檢查是否需要初始化天賦資料
-        $talentService = new TalentService();
+        $talentService = new TalentService;
         if (! $talentService->checkTalentPoolExists($user->uid, 1)) {
             $talentService->createTalentPool($user->uid, 1);
         }
@@ -280,8 +301,8 @@ class AuthController extends Controller
         // 登入判斷
         if ($user) {
             return response()->json([
-                'message'      => __('登入成功'),
-                'data'         => $this->createNewToken($token),
+                'message' => __('登入成功'),
+                'data' => $this->createNewToken($token),
                 'finishedTask' => $formattedTaskResult,
             ], 200);
         }
@@ -302,9 +323,9 @@ class AuthController extends Controller
             $this->restoreUserPet($user);
         }
         if (empty($user)) {
-            $user           = new Users;
-            $user->mac_id   = $data['mac_id'];
-            $user->account  = base64_encode($data['mac_id']);
+            $user = new Users;
+            $user->mac_id = $data['mac_id'];
+            $user->account = base64_encode($data['mac_id']);
             $user->password = $data['mac_id'];
             $user->save();
 
@@ -323,9 +344,9 @@ class AuthController extends Controller
         $token = auth()->guard('api')->login($user);
         UserService::addLoginLog($user->uid, $request->ip(), 'mac', $data);
 
-        //============ 任務系統 ============
+        // ============ 任務系統 ============
         // 任務Service
-        $taskService = new TaskService();
+        $taskService = new TaskService;
         // 紀錄系統任務
         $userStatsService = new UserStatsService($taskService);
         $userStatsService->updateByKeyword($user, 'login');
@@ -335,9 +356,9 @@ class AuthController extends Controller
         $taskStatsService->updateByKeyword($user, 'login_event');
         $taskStatsService->updateByKeyword($user, 'newbie');
         // 本次登入是否有完成任務
-        $completedTask       = $taskService->getCompletedTasks($user->uid);
+        $completedTask = $taskService->getCompletedTasks($user->uid);
         $formattedTaskResult = $taskService->formatCompletedTasks($completedTask);
-        //============ 任務系統 ============
+        // ============ 任務系統 ============
 
         // 創建surgame
         if (empty(UserSurGameInfo::where('uid', $user->uid)->first())) {
@@ -359,16 +380,25 @@ class AuthController extends Controller
             $this->initSlotEquip($user->uid);
         }
 
+        // 初始化陣位角色
+        $this->initializeUserDeploySlots($user->uid);
+        // 強制設定主角在0號位置
+        $svc = app(DeploySlotService::class);
+        $checkMain = $svc->checkAndSetMainCharacter($user->uid);
+        if (! $checkMain) {
+            $svc->forceSetMainCharacter($user->uid);
+        }
+
         // 檢查是否需要初始化天賦資料
-        $talentService = new TalentService();
+        $talentService = new TalentService;
         if (! $talentService->checkTalentPoolExists($user->uid, 1)) {
             $talentService->createTalentPool($user->uid, 1);
         }
 
         if ($user) {
             return response()->json([
-                'message'      => __('登入成功'),
-                'data'         => $this->createNewToken($token),
+                'message' => __('登入成功'),
+                'data' => $this->createNewToken($token),
                 'finishedTask' => $formattedTaskResult,
             ], 200);
         }
@@ -384,7 +414,7 @@ class AuthController extends Controller
         $data = $request->input();
         \Log::info(json_encode($data));
         $validator = Validator::make($data, [
-            'account'  => 'required',
+            'account' => 'required',
             'password' => 'required',
         ]);
 
@@ -412,9 +442,9 @@ class AuthController extends Controller
         $token = auth()->guard('api')->login($user);
         UserService::addLoginLog($user->uid, $request->ip(), 'other', $data);
 
-        //============ 任務系統 ============
+        // ============ 任務系統 ============
         // 任務Service
-        $taskService = new TaskService();
+        $taskService = new TaskService;
         // 紀錄系統任務
         $userStatsService = new UserStatsService($taskService);
         $userStatsService->updateByKeyword($user, 'login');
@@ -424,9 +454,9 @@ class AuthController extends Controller
         $taskStatsService->updateByKeyword($user, 'login_event');
         $taskStatsService->updateByKeyword($user, 'newbie');
         // 本次登入是否有完成任務
-        $completedTask       = $taskService->getCompletedTasks($user->uid);
+        $completedTask = $taskService->getCompletedTasks($user->uid);
         $formattedTaskResult = $taskService->formatCompletedTasks($completedTask);
-        //============ 任務系統 ============
+        // ============ 任務系統 ============
 
         // 創建surgame
         if (empty(UserSurGameInfo::where('uid', $user->uid)->first())) {
@@ -435,12 +465,13 @@ class AuthController extends Controller
 
         if ($user) {
             return response()->json([
-                'message'      => __('登入成功'),
-                'data'         => $this->createNewToken($token),
+                'message' => __('登入成功'),
+                'data' => $this->createNewToken($token),
                 'finishedTask' => $formattedTaskResult,
             ], 200);
         }
     }
+
     /**
      * Register a Users.
      *
@@ -449,7 +480,7 @@ class AuthController extends Controller
     public function register(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'account'  => 'required',
+            'account' => 'required',
             'password' => 'required',
         ]);
 
@@ -467,8 +498,8 @@ class AuthController extends Controller
             return response()->json(ErrorService::errorCode(__METHOD__, 'AUTH:0002'), 422);
         }
 
-        $user           = new Users;
-        $user->account  = $data['account'];
+        $user = new Users;
+        $user->account = $data['account'];
         $user->password = $data['password'];
         $user->save();
 
@@ -495,13 +526,31 @@ class AuthController extends Controller
         if (! $this->checkUserDeploySlotEquip($user->uid)) {
             $this->initSlotEquip($user->uid);
         }
+
+        // 初始化陣位角色
+        $this->initializeUserDeploySlots($user->uid);
+
+        // 強制設定主角在0號位置
+        $svc = app(DeploySlotService::class);
+        $checkMain = $svc->checkAndSetMainCharacter($user->uid);
+        if (! $checkMain) {
+            $svc->forceSetMainCharacter($user->uid);
+        }
+
+        // 檢查是否需要初始化天賦資料
+        $talentService = new TalentService;
+        if (! $talentService->checkTalentPoolExists($user->uid, 1)) {
+            $talentService->createTalentPool($user->uid, 1);
+        }
+
         if ($user) {
             return response()->json([
                 'message' => __('註冊並登入成功'),
-                'data'    => $this->createNewToken($token),
+                'data' => $this->createNewToken($token),
             ], 200);
         }
     }
+
     /**
      * Log the user out (Invalidate the token).
      *
@@ -510,6 +559,7 @@ class AuthController extends Controller
     public function logout()
     {
         auth()->guard('api')->logout();
+
         return response()->json(['message' => __('登出成功')], 200);
     }
 
@@ -522,6 +572,7 @@ class AuthController extends Controller
     {
         return response()->json(['data' => $this->createNewToken(auth()->guard('api')->refresh())], 200);
     }
+
     /**
      * Get the authenticated User.
      *
@@ -531,11 +582,12 @@ class AuthController extends Controller
     {
         $user = auth()->guard('api')->user();
         $user->load('userEquipment');
-        $user->change_name_item_id             = 300; // 改名道具item_id
-        $user->change_name_cnt                 = UserItems::where('item_id', 300)->first()?->qty ?? 0;
-        $user->change_name_currency_item_id    = 100; // 改名道具貨幣item_id
+        $user->change_name_item_id = 300; // 改名道具item_id
+        $user->change_name_cnt = UserItems::where('item_id', 300)->first()?->qty ?? 0;
+        $user->change_name_currency_item_id = 100; // 改名道具貨幣item_id
         $user->change_name_currency_item_count = UserItems::where('item_id', 100)->first()?->qty ?? 0;
         $user->change_name_currency_item_price = 10;
+
         return response()->json(['data' => $user], 200);
     }
 
@@ -555,9 +607,9 @@ class AuthController extends Controller
         $otherUser->load('userEquipment');
         $otherUser->is_black_list = BlocklistService::isBlocked($currentUser->uid, $uid);
 
-        $followService           = new FollowService();
+        $followService = new FollowService;
         $otherUser->is_following = $followService->isFollowing($currentUser->uid, $uid);
-        $formattedInfoResult     = $this->formatUserInfo($otherUser);
+        $formattedInfoResult = $this->formatUserInfo($otherUser);
 
         // 創建surgame
         if (empty(UserSurGameInfo::where('uid', $currentUser->uid)->first())) {
@@ -570,9 +622,20 @@ class AuthController extends Controller
         }
 
         // 檢查是否有陣位資料
-        if (! $this->checkUserDeploySlot($currentUser->uid)) {
-            $this->createMainCharacterDeploySlot($currentUser->uid);
-            $this->initSlotEquip($currentUser->uid);
+        if (! $this->checkUserDeploySlot($user->uid)) {
+            $this->createMainCharacterDeploySlot($user->uid);
+        }
+
+        // 檢查是否有精煉/強化資料
+        if (! $this->checkUserDeploySlotEquip($user->uid)) {
+            $this->initSlotEquip($user->uid);
+        }
+
+        // 強制設定主角在0號位置
+        $svc = app(DeploySlotService::class);
+        $checkMain = $svc->checkAndSetMainCharacter($user->uid);
+        if (! $checkMain) {
+            $svc->forceSetMainCharacter($user->uid);
         }
 
         return response()->json(['data' => $formattedInfoResult], 200);
@@ -617,32 +680,32 @@ class AuthController extends Controller
             $userSetting = UserSettings::where('user_id', auth()->guard('api')->user()->id)->first();
         }
         $level_data = UserService::getLevelData(auth()->guard('api')->user()->id);
-        if (isset($level_data['level_' . $data['level'] . $data['sub_level']])) {
-            $proxy_data = $level_data['level_' . $data['level'] . $data['sub_level']];
+        if (isset($level_data['level_'.$data['level'].$data['sub_level']])) {
+            $proxy_data = $level_data['level_'.$data['level'].$data['sub_level']];
 
             $proxy_data['now'] = $data['section'];
             if ($proxy_data['now'] > $proxy_data['max']) {
                 $proxy_data['max'] = $proxy_data['now'];
             }
-            if (! isset($proxy_data['sections']['section_' . $data['section']])) {
-                $proxy_data['sections']['section_' . $data['section']] = [
-                    "section" => $data['section'],
-                    "kill"    => 0,
-                    "second"  => 0,
+            if (! isset($proxy_data['sections']['section_'.$data['section']])) {
+                $proxy_data['sections']['section_'.$data['section']] = [
+                    'section' => $data['section'],
+                    'kill' => 0,
+                    'second' => 0,
                 ];
             }
             if (! empty($data['kill'])) {
-                if ($proxy_data['sections']['section_' . $data['section']]['kill'] < $data['kill']) {
-                    $proxy_data['sections']['section_' . $data['section']]['kill'] = $data['kill'];
+                if ($proxy_data['sections']['section_'.$data['section']]['kill'] < $data['kill']) {
+                    $proxy_data['sections']['section_'.$data['section']]['kill'] = $data['kill'];
                 }
             }
             if (! empty($data['second'])) {
-                if ($proxy_data['sections']['section_' . $data['section']]['second'] == 0 || $proxy_data['sections']['section_' . $data['section']]['second'] > $data['second']) {
-                    $proxy_data['sections']['section_' . $data['section']]['second'] = $data['second'];
+                if ($proxy_data['sections']['section_'.$data['section']]['second'] == 0 || $proxy_data['sections']['section_'.$data['section']]['second'] > $data['second']) {
+                    $proxy_data['sections']['section_'.$data['section']]['second'] = $data['second'];
                 }
             }
-            $proxy_data['section_cnt']                                  = count($proxy_data['sections']);
-            $level_data['level_' . $data['level'] . $data['sub_level']] = $proxy_data;
+            $proxy_data['section_cnt'] = count($proxy_data['sections']);
+            $level_data['level_'.$data['level'].$data['sub_level']] = $proxy_data;
 
             $userSetting->level_data = json_encode($level_data);
             $userSetting->save();
@@ -659,7 +722,7 @@ class AuthController extends Controller
             return response()->json(ErrorService::errorCode(__METHOD__, 'SYSTEM:0001'), 404);
         }
 
-        $item_ids    = [];
+        $item_ids = [];
         $manager_ids = [];
 
         if ($user->is_admin) {
@@ -667,7 +730,7 @@ class AuthController extends Controller
             foreach ($userItems as $userItem) {
 
                 if (! empty($userItem['region']) && $userItem['region'] == UserItems::REGION_AVATAR) {
-                    $item_ids[]    = (int) $userItem['item_id'];
+                    $item_ids[] = (int) $userItem['item_id'];
                     $manager_ids[] = (int) $userItem['manager_id'];
                 }
             }
@@ -694,25 +757,25 @@ class AuthController extends Controller
             return response()->json(ErrorService::errorCode(__METHOD__, 'SYSTEM:0001'), 404);
         }
 
-        $item_ids    = [];
+        $item_ids = [];
         $manager_ids = [];
-        $qties       = [];
+        $qties = [];
 
         if ($user->is_admin) {
             $userItems = UserItemService::getItemLists();
             foreach ($userItems as $userItem) {
                 if (! empty($userItem['region']) && $userItem['region'] == UserItems::REGION_MAP) {
-                    $item_ids[]    = (int) $userItem['item_id'];
+                    $item_ids[] = (int) $userItem['item_id'];
                     $manager_ids[] = (int) $userItem['manager_id'];
-                    $qties[]       = 999;
+                    $qties[] = 999;
                 }
             }
         } else {
             $userItems = UserItems::where('user_id', $user->id)->where('region', UserItems::REGION_MAP)->get();
             foreach ($userItems as $userItem) {
-                $item_ids[]    = $userItem->item_id;
+                $item_ids[] = $userItem->item_id;
                 $manager_ids[] = $userItem->manager_id ?: '';
-                $qties[]       = $userItem->qty ?: 0;
+                $qties[] = $userItem->qty ?: 0;
             }
         }
 
@@ -732,7 +795,7 @@ class AuthController extends Controller
 
         $result = [
             'item_ids' => [],
-            'values'   => [],
+            'values' => [],
         ];
 
         $userItems = UserItems::where('user_id', $user->id)->whereIn('item_id', $item_ids)->get();
@@ -748,8 +811,8 @@ class AuthController extends Controller
         }
 
         // ============= 任務系統 ============
-        $taskService         = new TaskService();
-        $completedTask       = $taskService->getCompletedTasks($user->uid);
+        $taskService = new TaskService;
+        $completedTask = $taskService->getCompletedTasks($user->uid);
         $formattedTaskResult = $taskService->formatCompletedTasks($completedTask);
         // ============= 任務系統 ============
 
@@ -780,7 +843,7 @@ class AuthController extends Controller
 
                         // 先檢查改名卡
                         $changeNameItem = $user->userItems()->where('item_id', 300)->first();
-                        $changeNameCnt  = $changeNameItem?->qty ?? 0;
+                        $changeNameCnt = $changeNameItem?->qty ?? 0;
 
                         if ($changeNameCnt > 0) {
                             // 用改名卡
@@ -795,7 +858,7 @@ class AuthController extends Controller
                         } else {
                             // 檢查商城幣
                             $coinItem = $user->userItems()->where('item_id', 100)->first();
-                            $coinCnt  = $coinItem?->qty ?? 0;
+                            $coinCnt = $coinItem?->qty ?? 0;
 
                             if ($coinCnt > 10) {
                                 // 扣商城幣
@@ -817,7 +880,7 @@ class AuthController extends Controller
                     break;
 
                 default:
-                    # code...
+                    // code...
                     break;
             }
         }
@@ -828,22 +891,22 @@ class AuthController extends Controller
                 UserService::getHomeMap($user->id);
             }
 
-            //============ 任務系統 ============
+            // ============ 任務系統 ============
             // 任務Service
-            $taskService = new TaskService();
+            $taskService = new TaskService;
             // 玩家任務
             $taskStatsService = new UserStatsService($taskService, $taskService->keywords(), [$taskService, 'calculateStat']);
             $taskStatsService->updateByKeyword($user, 'newbie');
             $taskStatsService->updateByKeyword($user, 'mall_coin');
             // 本次登入是否有完成任務
-            $completedTask       = $taskService->getCompletedTasks($user->uid);
+            $completedTask = $taskService->getCompletedTasks($user->uid);
             $formattedTaskResult = $taskService->formatCompletedTasks($completedTask);
-            //============ 任務系統 ============
+            // ============ 任務系統 ============
 
             //
-            $user->change_name_item_id             = 300;
-            $user->change_name_cnt                 = UserItems::where('item_id', 300)->first()?->qty ?? 0;
-            $user->change_name_currency_item_id    = 100;
+            $user->change_name_item_id = 300;
+            $user->change_name_cnt = UserItems::where('item_id', 300)->first()?->qty ?? 0;
+            $user->change_name_currency_item_id = 100;
             $user->change_name_currency_item_count = UserItems::where('item_id', 100)->first()?->qty ?? 0;
             $user->change_name_currency_item_price = 10;
 
@@ -858,7 +921,7 @@ class AuthController extends Controller
             }
 
             return response()->json([
-                'data'         => $user,
+                'data' => $user,
                 'finishedTask' => $formattedTaskResult,
             ], 200);
         } else {
@@ -898,6 +961,7 @@ class AuthController extends Controller
             $data = [
                 'deleted_at' => Carbon::parse($user->deleted_at)->addDays(30)->timestamp,
             ];
+
             return response()->json(['message' => __('刪除成功'), 'data' => $data], 200);
         } else {
 
@@ -930,11 +994,11 @@ class AuthController extends Controller
         }
 
         if (empty($userSmsValid)) {
-            $userSmsValid          = new UserSmsValids;
+            $userSmsValid = new UserSmsValids;
             $userSmsValid->user_id = auth()->guard('api')->user()->id;
-            $userSmsValid->mobile  = $data['mobile'];
+            $userSmsValid->mobile = $data['mobile'];
         }
-        $userSmsValid->sms_valid_code  = '888888';
+        $userSmsValid->sms_valid_code = '888888';
         $userSmsValid->sms_valid_limit = Carbon::now()->addMinutes(5);
         if ($userSmsValid->save()) {
             return response()->json(['message' => __('發送成功')], 200);
@@ -995,17 +1059,18 @@ class AuthController extends Controller
         $currentDate = Carbon::now();
         // if(!empty($emailValid) && $emailValid->sms_valid_limit && $currentDate->diffInMinutes($emailValid->sms_valid_limit) <= 5) return response()->json(['message' => __('5分鐘內不可重新發送驗證碼'), ], 422);
 
-        $emailValid              = new EmailValids;
-        $emailValid->email       = $data['email'];
-        $emailValid->valid_code  = rand(100000, 999999);
+        $emailValid = new EmailValids;
+        $emailValid->email = $data['email'];
+        $emailValid->valid_code = rand(100000, 999999);
         $emailValid->valid_limit = Carbon::now()->addMinutes(5);
         if ($emailValid->save()) {
             try {
-                \App\Service\MailService::send($emailValid->email, '您的驗證碼:' . $emailValid->valid_code, config('services.SITE_NAME'));
+                \App\Service\MailService::send($emailValid->email, '您的驗證碼:'.$emailValid->valid_code, config('services.SITE_NAME'));
             } catch (Exception $ex) {
                 // Debug via $ex->getMessage();
                 return response()->json(['message' => __('發送失敗')], 404);
             }
+
             return response()->json(['message' => __('發送成功')], 200);
         }
 
@@ -1015,8 +1080,8 @@ class AuthController extends Controller
     public function checkRegistrEmailValid(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'email'    => 'required',
-            'code'     => 'required',
+            'email' => 'required',
+            'code' => 'required',
             'password' => 'required',
         ]);
         if ($validator->fails()) {
@@ -1049,10 +1114,10 @@ class AuthController extends Controller
         }
 
         if ($emailValid->delete()) {
-            $user           = new StoreCustomers;
+            $user = new StoreCustomers;
             $user->store_id = $data['store_id'] ?? 1;
-            $user->account  = $data['email'];
-            $user->email    = $data['email'];
+            $user->account = $data['email'];
+            $user->email = $data['email'];
             $user->password = $data['password'];
             $user->save();
 
@@ -1060,7 +1125,7 @@ class AuthController extends Controller
             if ($user) {
                 return response()->json([
                     'message' => __('驗證登入成功'),
-                    'data'    => $this->createNewToken($token),
+                    'data' => $this->createNewToken($token),
                 ], 200);
             }
         }
@@ -1091,7 +1156,7 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => __('改名成功'),
-            'data'    => $user,
+            'data' => $user,
         ], 200);
     }
 
@@ -1120,7 +1185,7 @@ class AuthController extends Controller
             return [
                 'success' => true,
                 'message' => __('寵物復原成功'),
-                'data'    => $restoredPets,
+                'data' => $restoredPets,
             ];
         }
 
@@ -1135,14 +1200,15 @@ class AuthController extends Controller
     {
         $blockStatus = $user->is_black_list ? 1 : 0;
         $isFollowing = $user->is_following ? 1 : 0;
+
         return [
-            'uid'                => $user->uid,
-            'name'               => $user->name,
+            'uid' => $user->uid,
+            'name' => $user->name,
             'firebase_photo_url' => $user->firebase_photo_url,
-            'last_login_time'    => $user->last_login_time,
-            'is_black_list'      => $blockStatus,
-            'is_following'       => $isFollowing,
-            'user_equipment'     => $user->userEquipment,
+            'last_login_time' => $user->last_login_time,
+            'is_black_list' => $blockStatus,
+            'is_following' => $isFollowing,
+            'user_equipment' => $user->userEquipment,
         ];
     }
 
@@ -1150,14 +1216,14 @@ class AuthController extends Controller
     {
         return [
             'access_token' => $token,
-            'token_type'   => 'bearer',
+            'token_type' => 'bearer',
             /** @var int */
-            'expires_in'   => auth()->guard('api')->factory()->getTTL() * 60,
+            'expires_in' => auth()->guard('api')->factory()->getTTL() * 60,
             /** @var object */
-            'user'         => tap(auth()->guard('api')->user()->load('userEquipment'), function ($user) {
-                $user->change_name_item_id             = 300;
-                $user->change_name_cnt                 = \App\Models\UserItems::where('item_id', 300)->first()?->qty ?? 0;
-                $user->change_name_currency_item_id    = 100;
+            'user' => tap(auth()->guard('api')->user()->load('userEquipment'), function ($user) {
+                $user->change_name_item_id = 300;
+                $user->change_name_cnt = \App\Models\UserItems::where('item_id', 300)->first()?->qty ?? 0;
+                $user->change_name_currency_item_id = 100;
                 $user->change_name_currency_item_count = \App\Models\UserItems::where('item_id', 100)->first()?->qty ?? 0;
                 $user->change_name_currency_item_price = 10;
             }),
@@ -1180,19 +1246,19 @@ class AuthController extends Controller
 
         // 使用 Laravel 驗證器處理欄位驗證
         $validator = \Validator::make($data, [
-            'firebase_uid'         => 'required|string',
-            'firebase_providerId'  => 'required|string',
+            'firebase_uid' => 'required|string',
+            'firebase_providerId' => 'required|string',
             'firebase_accessToken' => 'required|string',
-            'email'                => 'required|email',
+            'email' => 'required|email',
         ]);
 
         if ($validator->fails()) {
-            $errors     = $validator->errors();
+            $errors = $validator->errors();
             $firstField = array_keys($errors->toArray())[0];
 
             \Log::warning('[web_firebase_login] 欄位驗證失敗', [
-                'field'   => $firstField,
-                'errors'  => $errors->toArray(),
+                'field' => $firstField,
+                'errors' => $errors->toArray(),
                 'request' => $data,
             ]);
 
@@ -1214,15 +1280,15 @@ class AuthController extends Controller
 
         if (! $user) {
             $user = new Users([
-                'account'               => base64_encode(Carbon::now()->timestamp . rand(10000, 99999)),
-                'password'              => Carbon::now()->timestamp . rand(10000, 99999),
-                'email'                 => $data['email'],
-                'firebase_name'         => $data['firebase_name'] ?? 'Apple 使用者',
-                'firebase_uid'          => $data['firebase_uid'],
-                'firebase_provider_id'  => $data['firebase_providerId'],
+                'account' => base64_encode(Carbon::now()->timestamp.rand(10000, 99999)),
+                'password' => Carbon::now()->timestamp.rand(10000, 99999),
+                'email' => $data['email'],
+                'firebase_name' => $data['firebase_name'] ?? 'Apple 使用者',
+                'firebase_uid' => $data['firebase_uid'],
+                'firebase_provider_id' => $data['firebase_providerId'],
                 'firebase_access_token' => $data['firebase_accessToken'],
-                'firebase_photo_url'    => $data['firebase_photoURL'] ?? null,
-                'is_active'             => 1,
+                'firebase_photo_url' => $data['firebase_photoURL'] ?? null,
+                'is_active' => 1,
             ]);
 
             $user->save();
@@ -1261,7 +1327,7 @@ class AuthController extends Controller
         return response()->json([
             'success' => true,
             'message' => $message,
-            'data'    => $this->createNewToken($token),
+            'data' => $this->createNewToken($token),
         ]);
     }
 
@@ -1301,18 +1367,19 @@ class AuthController extends Controller
             $userCharacter = UserCharacter::where('uid', $uid)->where('slot_index', 0)->first();
             if (empty($userCharacter)) {
                 $userCharacter = UserCharacter::create([
-                    'uid'          => $uid,
-                    'slot_index'   => 0,
+                    'uid' => $uid,
+                    'slot_index' => 0,
                     'character_id' => 0,
-                    'start_level'  => 0,
-                    'has_use'      => 1,
+                    'start_level' => 0,
+                    'has_use' => 1,
                 ]);
             }
         } catch (Exception $e) {
             \Log::error('[createUserSurgame] 創建玩家初始資料失敗', [
-                'uid'   => $uid,
+                'uid' => $uid,
                 'error' => $e->getMessage(),
             ]);
+
             return response()->json(ErrorService::errorCode(__METHOD__, 'SYSTEM:0003'), 500);
         }
     }
@@ -1330,7 +1397,7 @@ class AuthController extends Controller
                 $userDeploySlot = CharacterDeploySlot::where('uid', $uid)->where('position', $i)->first();
                 if (empty($userDeploySlot)) {
                     $userDeploySlot = CharacterDeploySlot::create([
-                        'uid'      => $uid,
+                        'uid' => $uid,
                         'position' => $i,
                     ]);
                 }
@@ -1338,9 +1405,10 @@ class AuthController extends Controller
 
         } catch (Exception $e) {
             \Log::error('[createUserDeploy] 創建玩家初始陣位資料失敗', [
-                'uid'   => $uid,
+                'uid' => $uid,
                 'error' => $e->getMessage(),
             ]);
+
             return response()->json(ErrorService::errorCode(__METHOD__, 'SYSTEM:0003'), 500);
         }
     }
@@ -1348,8 +1416,18 @@ class AuthController extends Controller
     public function initSlotEquip($uid)
     {
         $svc = app(DeploySlotService::class);
+
         return $svc->initUserSlotEquipment($uid);
     }
+
+    // 強制設定主角在0號位置
+    public function forceMainCharacterToFirstSlot($uid)
+    {
+        $svc = app(DeploySlotService::class);
+
+        return $svc->forceMainCharacterToFirstSlot($uid);
+    }
+
     // 檢查是否有主角陣位
     public function checkUserCharacter($uid)
     {
@@ -1366,5 +1444,76 @@ class AuthController extends Controller
     public function checkUserDeploySlotEquip($uid)
     {
         return UserSlotEquipment::where('uid', $uid)->count() >= 30;
+    }
+
+    public function initializeUserDeploySlots($uid)
+    {
+        // Step 1: 檢查是否已放滿角色
+        $slots = CharacterDeploySlot::where('uid', $uid)->orderBy('position', 'asc')->get();
+        $isFull = true;
+        foreach ($slots as $slot) {
+            if (empty($slot->character_id)) {
+                $isFull = false;
+                break;
+            }
+        }
+
+        // 若已放滿就直接結束
+        if ($isFull) {
+            return ['success' => true, 'message' => '角色已放滿'];
+        }
+
+        // Step 2: 發送初始角色
+        $defaultCharacterIds = [1900, 2900, 3900, 4900];
+        foreach ($defaultCharacterIds as $characterId) {
+            UserCharacter::firstOrCreate(
+                ['uid' => $uid, 'character_id' => $characterId],
+                ['star_level' => 0]
+            );
+        }
+
+        // Step 2.5: 清空角色陣位資料
+        foreach ($slots as $slot) {
+            if (!empty($slot->character_id) && $slot->character_id != 0) {
+                // 將該角色從陣位中移除
+                UserCharacter::where('uid', $uid)
+                    ->where('character_id', $slot->character_id)
+                    ->update([
+                        'has_use' => 0,
+                        'slot_index' => null
+                    ]);
+            }
+        }
+
+        // Step 3: 初始化陣位角色
+        $userCharacters = UserCharacter::where('uid', $uid)->get()->keyBy('character_id');
+
+        for ($position = 1; $position <= 4; $position++) {
+            $slot = CharacterDeploySlot::where('uid', $uid)->where('position', $position)->first();
+            if (! $slot) {
+                continue;
+            }
+
+            if (empty($slot->character_id)) {
+                // pos1 -> 1900, pos2 -> 2900, pos3 -> 3900, pos4 -> 4900
+                $defaultCharacterId = ($position) * 1000 + 900;
+                if (isset($userCharacters[$defaultCharacterId])) {
+                    $slot->character_id = $defaultCharacterId;
+                    $slot->save();
+                }
+            }
+        }
+
+        // Step 4: 更新角色為has_use, slot_index
+        foreach ($userCharacters as $userCharacter) {
+            $userCharacter->has_use = 1;
+            $deploySlot = CharacterDeploySlot::where('uid', $uid)->where('character_id', $userCharacter->character_id)->first();
+            if ($deploySlot) {
+                $userCharacter->slot_index = $deploySlot->position;
+            }
+            $userCharacter->save();
+        }
+
+        return ['success' => true, 'message' => '初始化完成'];
     }
 }

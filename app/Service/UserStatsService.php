@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Service;
 
 use App\Models\Follows;
@@ -13,7 +14,6 @@ use App\Models\Users;
 use App\Models\UserStaminaLog;
 use App\Models\UserStats;
 use App\Models\UserTasks;
-use App\Service\TaskService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -21,14 +21,17 @@ use Illuminate\Support\Facades\Log;
 class UserStatsService
 {
     protected $taskService;
+
     protected $keywords;
+
     protected $calculateStat;
+
     private $useOwnMethod = false;
 
     public function __construct($taskService, array $keywords = [], $calculateStat = null)
     {
         $this->taskService = $taskService;
-        $this->keywords    = ! empty($keywords) ? $keywords : $this->keywords();
+        $this->keywords = ! empty($keywords) ? $keywords : $this->keywords();
 
         // 如果 calculateStat 是 array，代表是 [$object, 'method']，自動轉成 callable
         if (is_array($calculateStat)) {
@@ -38,7 +41,7 @@ class UserStatsService
         } else {
             // 沒有傳 就用自己的method
             $this->calculateStat = [$this, 'calculateStat'];
-            $this->useOwnMethod  = true;
+            $this->useOwnMethod = true;
         }
     }
 
@@ -47,7 +50,7 @@ class UserStatsService
     {
         if (isset($this->keywords[$keyword])) {
             $finishedTaskIds = [];
-            $finishedTasks   = [];
+            $finishedTasks = [];
 
             // 過濾指定欄位（如果有指定）
             $columns = $this->keywords[$keyword];
@@ -57,12 +60,13 @@ class UserStatsService
 
             foreach ($columns as $column) {
                 // 更新統計資料
-                $result   = $this->updateUserStats($user, $column, $value);
-                $taskIds  = $result['taskIds'];
+                $result = $this->updateUserStats($user, $column, $value);
+                $taskIds = $result['taskIds'];
+
                 $progress = ['count' => $result['recordCount']];
                 if (! empty($taskIds)) {
                     // 自動更新對應任務資料
-                    $result          = $this->updateTaskData($user, $taskIds, $progress);
+                    $result = $this->updateTaskData($user, $taskIds, $progress);
                     $finishedTaskIds = array_merge($finishedTaskIds, $result);
                 }
             }
@@ -77,6 +81,7 @@ class UserStatsService
     /** 統計資料格式計算 + 回傳符合任務 */
     public function updateUserStats($user, $column, $value = null)
     {
+
         $recordCount = call_user_func($this->calculateStat, $user->uid, $column, $value);
         if ($recordCount === null) {
             return ['taskIds' => [], 'recordCount' => $recordCount];
@@ -111,8 +116,9 @@ class UserStatsService
                 }
             }
         } catch (\Exception $e) {
-            Log::error('更新玩家任務資料失敗: ' . ['uid' => $user->uid, 'error' => $e->getMessage()]);
+            Log::error('更新玩家任務資料失敗: '.['uid' => $user->uid, 'error' => $e->getMessage()]);
         }
+
         return $finishedTaskIds;
     }
 
@@ -136,8 +142,8 @@ class UserStatsService
                         ->where('uid', $uid)
                         ->groupBy(DB::raw('DATE(created_at)'))
                         ->pluck('d')
-                        ->map(fn($d) => Carbon::parse($d)->startOfDay())
-                        ->keyBy(fn($d) => $d->toDateString());
+                        ->map(fn ($d) => Carbon::parse($d)->startOfDay())
+                        ->keyBy(fn ($d) => $d->toDateString());
 
                     // 從今天開始往前推算
                     $cursor = now()->startOfDay();
@@ -147,6 +153,7 @@ class UserStatsService
                         $streak++;
                         $cursor->subDay();
                     }
+
                     return $streak;
 
                 case 'login_streak_max': // 登入連續天數
@@ -154,12 +161,12 @@ class UserStatsService
                         ->where('uid', $uid)
                         ->groupBy(DB::raw('DATE(created_at)'))
                         ->pluck('d')
-                        ->map(fn($d) => Carbon::parse($d)->startOfDay())
+                        ->map(fn ($d) => Carbon::parse($d)->startOfDay())
                         ->values();
 
-                    $maxStreak     = 0;
+                    $maxStreak = 0;
                     $currentStreak = 0;
-                    $prevDate      = null;
+                    $prevDate = null;
 
                     foreach ($dates as $date) {
                         if ($prevDate && $date->diffInDays($prevDate) === 1) {
@@ -169,7 +176,7 @@ class UserStatsService
                         }
 
                         $maxStreak = max($maxStreak, $currentStreak);
-                        $prevDate  = $date;
+                        $prevDate = $date;
                     }
 
                     return $maxStreak;
@@ -216,25 +223,31 @@ class UserStatsService
                     return 0;
                 case 'map_edit_total': // 累計地圖編輯次數
                     $recordCount = UserStats::where('uid', $uid)->first()->map_edit_total;
+
                     return $recordCount + 1;
                 case 'map_publish_total': // 累計地圖發布次數
                     $recordCount = UserMaps::where('user_id', $user->id)->where('is_publish', 1)->count();
+
                     return $recordCount;
                 case 'ugc_play_times': // 遊戲內玩家關卡遊玩次數
                     return 1;
                 case 'ugc_play_total': // 累計遊戲內玩家關卡遊玩次數
                     $originRecordCount = UserStats::where('uid', $uid)->first()->ugc_play_total;
+
                     return $originRecordCount + 1;
                 case 'ugc_clear_times': // 遊戲內玩家關卡清除次數
                     $recordCount = UserStats::where('uid', $uid)->first()->ugc_clear_times;
+
                     return $recordCount + 1;
                 case 'ugc_clear_total': // 累計遊戲內玩家關卡清除次數
                     $recordCount = UserStats::where('uid', $uid)->first()->ugc_clear_total;
+
                     return $recordCount + 1;
                 case 'mission_visit_home': // 任務期間訪問好友家次數 (待確認)
                     return 0;
                 case 'visit_home_total': // 累計訪問好友家次數
                     $recordCount = UserStats::where('uid', $uid)->first()->visit_home_total;
+
                     return $recordCount + 1;
                 case 'spend_stamina_total': // 累計花費體力
                     return UserStaminaLog::where('uid', $uid)
@@ -276,66 +289,74 @@ class UserStatsService
                         ->sum('qty');
                 case 'minigame_play_total': // 累計遊戲內小遊戲遊玩次數
                     $recordCount = UserStats::where('uid', $uid)->first()->minigame_play_total;
+
                     return $recordCount + 1;
-                case 'pet_level_total': //寵物等級加總
+                case 'pet_level_total': // 寵物等級加總
                     $pets = UserPet::where('uid', $user->uid)
                         ->where('pet_level', '>', 0)
                         ->get();
                     $totalLevel = $pets->sum('pet_level');
+
                     return $totalLevel;
-                case 'pet_1_level': //寵物1等級
+                case 'pet_1_level': // 寵物1等級
                     $pet1 = UserPet::where('uid', $user->uid)
                         ->where('pet_id', 1)
                         ->first();
                     if ($pet1) {
                         return $pet1->pet_level;
                     }
+
                     // 如果沒有寵物1，則返回0
                     return 0;
-                case 'pet_2_level': //寵物2等級
+                case 'pet_2_level': // 寵物2等級
                     $pet2 = UserPet::where('uid', $user->uid)
                         ->where('pet_id', 2)
                         ->first();
                     if ($pet2) {
                         return $pet2->pet_level;
                     }
+
                     return 0;
-                case 'pet_3_level': //寵物3等級
+                case 'pet_3_level': // 寵物3等級
                     $pet3 = UserPet::where('uid', $user->uid)
                         ->where('pet_id', 3)
                         ->first();
                     if ($pet3) {
                         return $pet3->pet_level;
                     }
+
                     return 0;
-                case 'pet_4_level': //寵物4等級
+                case 'pet_4_level': // 寵物4等級
                     $pet4 = UserPet::where('uid', $user->uid)
                         ->where('pet_id', 4)
                         ->first();
                     if ($pet4) {
                         return $pet4->pet_level;
                     }
+
                     return 0;
-                case 'pet_5_level': //寵物5等級
+                case 'pet_5_level': // 寵物5等級
                     $pet5 = UserPet::where('uid', $user->uid)
                         ->where('pet_id', 5)
                         ->first();
                     if ($pet5) {
                         return $pet5->pet_level;
                     }
+
                     // 如果沒有寵物5，則返回0
                     return 0;
-                case 'pet_6_level': //寵物6等級
+                case 'pet_6_level': // 寵物6等級
                     $pet6 = UserPet::where('uid', $user->uid)
                         ->where('pet_id', 6)
                         ->first();
                     if ($pet6) {
                         return $pet6->pet_level;
                     }
+
                     return 0;
-                case 'summon_count1':           //一次叫出 1 隻以上寵物的次數
-                case 'summon_count2':           //累計一次叫出 2 隻以上寵物的次數
-                case 'summon_count3':           //累計一次叫出 3 隻以上寵物的次數
+                case 'summon_count1':           // 一次叫出 1 隻以上寵物的次數
+                case 'summon_count2':           // 累計一次叫出 2 隻以上寵物的次數
+                case 'summon_count3':           // 累計一次叫出 3 隻以上寵物的次數
                 case 'summon_times_pig':        // 召喚過幾隻寵物 1（一次3隻就+3）
                 case 'summon_times_chameleon':  // 召喚過幾隻寵物 2（一次3隻就+3）
                 case 'summon_times_cow':        // 召喚過幾隻寵物 3（一次3隻就+3）
@@ -344,6 +365,7 @@ class UserStatsService
                 case 'summon_times_bear':       // 召喚過幾隻寵物 6（一次3隻就+3）
                 case 'summon_count3_samepet':   // 召喚同隻寵物 3 次以上
                     $recordCount = UserStats::where('uid', $uid)->first()->$column;
+
                     return $recordCount + $value;
                 case 'max_followers_count': // 生涯最高被追蹤
                     return Follows::withTrashed()
@@ -362,6 +384,7 @@ class UserStatsService
             }
         } catch (\Exception $e) {
             Log::error('計算玩家統計資料失敗: ', ['uid' => $uid, 'column' => $column, 'error' => $e->getMessage()]);
+
             return null;
         }
     }
@@ -370,30 +393,81 @@ class UserStatsService
     private function updateStatColumn(string $uid, string $column, int $value): void
     {
         try {
-            $userStats = UserStats::firstOrCreate(['uid' => $uid]);
-            if ($userStats->$column !== $value) {
+            // 取出該玩家最新一筆
+            $userStats = UserStats::where('uid', $uid)
+                ->orderByDesc('id')
+                ->first();
+
+            // 若不存在則建立一筆
+            if (! $userStats) {
+                $userStats = UserStats::create([
+                    'uid' => $uid,
+                    $column => $value,
+                ]);
+
+                return;
+            }
+
+            // 只有值不同時才更新
+            if ($value !== $userStats->$column) {
                 $userStats->$column = $value;
                 $userStats->save();
             }
-        } catch (\Exception $e) {
-            Log::error('更新玩家統計資料失敗: ' . ['uid' => $uid, 'error' => $e->getMessage()]);
+
+        } catch (\Throwable $e) {
+            Log::error('更新玩家統計資料失敗', [
+                'uid' => $uid,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 
-    /** 取得符合條件的任務ID */
+
+
+    /**
+     * 取得符合條件的任務ID（daily、weekly 對應當天與本週）
+     */
     private function getTaskIdsByColumn(string $column, int $uid): array
     {
-        return UserTasks::where('uid', $uid)
-            ->leftjoin('tasks', 'user_tasks.task_id', '=', 'tasks.id')
-            ->where('tasks.type', 'grade')
-            ->get(['user_tasks.*', 'tasks.condition', 'tasks.is_active', 'tasks.auto_assign'])
-            ->filter(function ($task) use ($column) {
-                $condition = $task->condition;
-                if (is_array($condition)) {
-                    return isset($condition['action']) && $condition['action'] === $column;
-                }
-                return false;
+        $todayStart = Carbon::today();
+        $todayEnd = Carbon::tomorrow();
+        $weekStart = Carbon::now()->startOfWeek();
+        $weekEnd = Carbon::now()->endOfWeek();
+
+        $tasks = UserTasks::where('user_tasks.uid', $uid)
+            ->leftJoin('tasks', 'user_tasks.task_id', '=', 'tasks.id')
+            ->where('tasks.type', '!=', 'grade')
+            ->where(function ($query) use ($todayStart, $todayEnd, $weekStart, $weekEnd) {
+                $query
+                    // daily 任務：只取今天建立的
+                    ->orWhere(function ($q) use ($todayStart, $todayEnd) {
+                        $q->where('tasks.type', 'daily')
+                            ->whereBetween('user_tasks.created_at', [$todayStart, $todayEnd]);
+                    })
+                    // weekly 任務：只取本週建立的
+                    ->orWhere(function ($q) use ($weekStart, $weekEnd) {
+                        $q->where('tasks.type', 'weekly')
+                            ->whereBetween('user_tasks.created_at', [$weekStart, $weekEnd]);
+                    })
+                    // 其他任務類型：不限制時間
+                    ->orWhereNotIn('tasks.type', ['daily', 'weekly']);
             })
+            ->get([
+                'user_tasks.id',
+                'tasks.condition',
+                'tasks.type',
+            ]);
+
+        // 篩選出符合 action 的
+        return $tasks->filter(function ($task) use ($column) {
+            $condition = is_string($task->condition)
+                ? json_decode($task->condition, true)
+                : $task->condition;
+
+            return is_array($condition)
+                && isset($condition['action'])
+                && $condition['action'] === $column;
+        })
             ->pluck('id')
             ->toArray();
     }
@@ -402,49 +476,49 @@ class UserStatsService
     public function keywords(): array
     {
         return [
-            'login'      => [
+            'login' => [
                 'login_total_days',
                 'login_streak_days',
                 'login_streak_max',
             ],
-            'recharge'   => [
+            'recharge' => [
                 'recharge_peak_amount',
                 'recharge_recent_amount',
                 'recharge_total_amount',
             ],
-            'gacha'      => [
+            'gacha' => [
                 'gacha_draw_times',
                 'gacha_draw_total',
             ],
-            'mall_coin'  => [
+            'mall_coin' => [
                 'mission_spend_mall_coin',
                 'spend_mall_coin_total',
             ],
-            'game_coin'  => [
+            'game_coin' => [
                 'mission_spend_game_coin',
                 'spend_game_coin_total',
             ],
-            'map'        => [
+            'map' => [
                 'map_edit_times',
                 'map_edit_total',
                 'map_publish_total',
             ],
-            'ugc_play'   => [
+            'ugc_play' => [
                 'ugc_play_times',
                 'ugc_play_total',
             ],
-            'ugc_clear'  => [
+            'ugc_clear' => [
                 'ugc_clear_times',
                 'ugc_clear_total',
             ],
-            'stamina'    => [
+            'stamina' => [
                 'spend_stamina_total',
             ],
-            'visit'      => [
+            'visit' => [
                 'mission_visit_home',
                 'visit_home_total',
             ],
-            'avatar_sr'  => [
+            'avatar_sr' => [
                 'sr_accessory_obtained_count',
                 'sr_accessory_owned_count',
             ],
@@ -455,14 +529,14 @@ class UserStatsService
             'avatar_all' => [
                 'doll_accessory_obtained_total',
             ],
-            'furniture'  => [
+            'furniture' => [
                 'furniture_type_obtained_total',
                 'furniture_type_owned_total',
             ],
-            'mini_game'  => [
+            'mini_game' => [
                 'minigame_play_total',
             ],
-            'pet_level'  => [
+            'pet_level' => [
                 'pet_level_total',
                 'pet_1_level',
                 'pet_2_level',
@@ -471,7 +545,7 @@ class UserStatsService
                 'pet_5_level',
                 'pet_6_level',
             ],
-            'summon'     => [
+            'summon' => [
                 'summon_count1',
                 'summon_count2',
                 'summon_count3',
@@ -483,13 +557,13 @@ class UserStatsService
                 'summon_times_bear',
                 'summon_count3_samepet',
             ],
-            'follow'     => [
+            'follow' => [
                 'max_followers_count',
             ],
-            'map_like'   => [
+            'map_like' => [
                 'max_map_like_count',
             ],
-            'ads'        => [
+            'ads' => [
                 'mission_watch_ads_count',
             ],
         ];
@@ -500,7 +574,7 @@ class UserStatsService
         $formattedTaskResult = [];
         foreach ($completedTasks as $task) {
             $formattedTaskResult[] = [
-                'task_id'   => $task->id,
+                'task_id' => $task->id,
                 'task_name' => $task->name,
             ];
         }
@@ -514,6 +588,7 @@ class UserStatsService
                 return $keyword;
             }
         }
+
         return null;
     }
 }

@@ -27,6 +27,8 @@ use App\Models\GddbSurgameStages;
 use App\Models\GddbSurgameTalent;
 use App\Models\GddbSurgameTalentDraw;
 use App\Models\GddbSurgameTreasure;
+use App\Models\TaskCategory;
+use Illuminate\Support\Facades\Cache;
 use App\Models\Tasks;
 use Illuminate\Console\Command;
 
@@ -40,30 +42,30 @@ class ImportSurgameItems extends Command
     {
         $this->info('開始匯入surgame資料');
 
-        // $this->migrateCards();
-        // $this->migrateHeros();
-        // $this->migrateLevelUps();
-        // $this->migrateLevels();
-        // $this->migrateMobs();
-        // $this->migratePassiveRewards();
-        // $this->migrateRankFuncs();
-        // $this->migrateRankUps();
-        // $this->migrateSkills();
-        // $this->migrateStages();
-        // // 2025-08-08
-        // $this->migratePlayerLvUp();
-        // $this->migrateEquipment();
-        // $this->migrateEqEnhance();
-        // $this->migrateEqRefine();
-        // $this->migrateEqQuility();
-        // $this->migrateEqMaster();
-        // $this->migrateTalent();
-        // $this->migrateTalentDraw();
-        // $this->migrateSurgameQuest();
-        // $this->migrateGrade();
-        // $this->migrateItemPackage();
-        // $this->migrateStarRewards();
-        // $this->migrateJourneys();
+        $this->migrateCards();
+        $this->migrateHeros();
+        $this->migrateLevelUps();
+        $this->migrateLevels();
+        $this->migrateMobs();
+        $this->migratePassiveRewards();
+        $this->migrateRankFuncs();
+        $this->migrateRankUps();
+        $this->migrateSkills();
+        $this->migrateStages();
+        // 2025-08-08
+        $this->migratePlayerLvUp();
+        $this->migrateEquipment();
+        $this->migrateEqEnhance();
+        $this->migrateEqRefine();
+        $this->migrateEqQuility();
+        $this->migrateEqMaster();
+        $this->migrateTalent();
+        $this->migrateTalentDraw();
+        $this->migrateSurgameQuest();
+        $this->migrateGrade();
+        $this->migrateItemPackage();
+        $this->migrateStarRewards();
+        $this->migrateJourneys();
         $this->migrateTreasure();
 
         $this->info('所有資料匯入成功!');
@@ -192,11 +194,12 @@ class ImportSurgameItems extends Command
         $this->info('清空當前資料');
         $columnMappingData = [
             'prefab' => ['prefab', null],
-            'hp' => ['hp', null],
-            'atk' => ['atk', null],
-            'def' => ['def', null],
-            'exp' => ['exp', null],
-            'gold' => ['gold', null],
+            'unique_id' => ['id', null],
+            'hp' => ['hp', 0],
+            'atk' => ['atk', 0],
+            'def' => ['def', 0],
+            'exp' => ['exp', 0],
+            'gold' => ['gold', 0],
         ];
         $results = $this->storeInputData(GddbSurgameMobs::class, $columnMappingData, $datas);
         if (! $results['success']) {
@@ -343,7 +346,6 @@ class ImportSurgameItems extends Command
         $columnMappingData = [
             'account_lv' => ['AcountLV', null],
             'xp' => ['XP', 0],
-            'reward' => ['Reward', []],
         ];
 
         $res = $this->storeInputData(GddbSurgamePlayerLvUp::class, $columnMappingData, $datas);
@@ -447,7 +449,7 @@ class ImportSurgameItems extends Command
             'min_enhance_lv' => ['MinEnhanceLv', 0],
             'cost' => ['Cost', 0],
             'cost_amount' => ['Cost_Amount', 0],
-            'success_rate' => ['Basic_Rate', 0],
+            'success_rate' => ['Basic_Rate', 40],
         ];
 
         $res = $this->storeInputData(GddbSurgameEqRefine::class, $columnMappingData, $datas);
@@ -525,11 +527,10 @@ class ImportSurgameItems extends Command
         $columnMappingData = [
             'card_id' => ['Card_ID', null],
             'lv' => ['Lv', 0],
-            'icon' => ['Icon', null],
-            'name' => ['Name', null],
-            'description' => ['Description', null],
-            'func' => ['Func', null],
-            'parament' => ['Parament', 0],
+            'manager_id' => ['ManagerID', null],
+            'parament' => ['Parament', null],
+            'affected' => ['Affected', null],
+            'gain_power' => ['GainPower', null],
         ];
 
         $res = $this->storeInputData(GddbSurgameTalent::class, $columnMappingData, $datas);
@@ -643,7 +644,6 @@ class ImportSurgameItems extends Command
         $this->info('開始匯入 Surgame Quests 資料');
         $url = 'https://r2dev.wow-dragon.com/gddatabase/120_surgame_quest.txt';
         $datas = $this->convertData($url, 'txt');
-
         Tasks::truncate();
         $this->info('清空當前資料');
 
@@ -661,7 +661,7 @@ class ImportSurgameItems extends Command
             'prev_task_id' => ['prev_task_id', 0],
             'next_task_id' => ['next_task_id', 0],
             'is_auto_complete' => ['is_auto_complete', 1],
-            'repeat_type' => ['repeat_type', null],
+            'repeatable_type' => ['repeat_type', null],
             'is_active' => ['is_active', 1],
             'series_id' => ['series_id', null],
             'condition' => ['id', 0],
@@ -681,6 +681,14 @@ class ImportSurgameItems extends Command
             $this->info('Tasks 資料轉換失敗');
 
             return 0;
+        }
+
+        // 寫回分類id
+        $this->info('開始寫回分類id');
+        $tasks = Tasks::get();
+        foreach ($tasks as $task) {
+            $task->category_id = $this->getTaskTypeId($task->type);
+            $task->save();
         }
 
         $this->info('Tasks 匯入完成');
@@ -742,6 +750,9 @@ class ImportSurgameItems extends Command
         $datas = collect($datas)->keyBy('ID');
         foreach ($journeys as $journey) {
             for ($i = 10; $i <= 20; $i += 5) {
+                if (empty($datas[$journey->unique_id]['Wave'.$i.'_Reward'])) {
+                    continue;
+                }
                 $ary = [
                     'journey_id' => $journey->id,
                     'wave' => $i,
@@ -791,6 +802,7 @@ class ImportSurgameItems extends Command
         $res = $this->storeInputData(GddbSurgameTreasure::class, $columnMappingData, $datas);
         if (! $res['success']) {
             $this->info('Treasure 匯入失敗');
+
             return 0;
         }
         // 補回 item_id 欄位
@@ -975,5 +987,21 @@ class ImportSurgameItems extends Command
 
             return ['success' => true];
         }
+    }
+    /** 取得任務分類 */
+    private function getTaskTypeId($type)
+    {
+
+        $taskType = Cache::remember('taskType', 5, function () {
+            return TaskCategory::select('id', 'show_type')->get();
+        });
+
+        foreach ($taskType as $task) {
+            $showTypes = $task->show_type;
+            if (is_array($showTypes) && in_array($type, $showTypes)) {
+                return $task['id'];
+            }
+        }
+        return null;
     }
 }

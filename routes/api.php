@@ -450,6 +450,7 @@ Route::group(['middleware' => 'api'], function ($router) {
             Route::get('/', [App\Http\Controllers\Api\TreasureController::class, 'test']);
             Route::post('/obtain',[App\Http\Controllers\Api\TreasureController::class, 'obtain']);
             Route::post('/fuse',[App\Http\Controllers\Api\TreasureController::class, 'fuse']);
+            Route::post('/auto_fuse',[App\Http\Controllers\Api\TreasureController::class, 'autoFuse']);
             Route::post('/reset',[App\Http\Controllers\Api\TreasureController::class, 'reset']);
         });
 

@@ -8,10 +8,11 @@ use App\Models\UserPatrolReward;
 use App\Models\Users;
 use App\Models\UserSurGameInfo;
 use App\Service\CharacterService;
-use App\Service\StaminaService;
 use App\Service\ErrorService;
+use App\Service\StaminaService;
 use App\Service\UserItemService;
 use App\Service\UserJourneyService;
+use App\Service\TaskService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -160,7 +161,7 @@ class PatrolController extends Controller
 
         // 取得玩家當前進度
         $currentChapterId = 1;
-        $currentChapterData = $this->userJourneyService->getCurrentProgress($user->uid);
+        $currentChapterData = $this->userJourneyService->getCurrentProgress($uid);
         if ($currentChapterData) {
             $currentChapterId = $currentChapterData['chapter_id'];
         }
@@ -181,6 +182,11 @@ class PatrolController extends Controller
 
             // 玩家等級更新
             $syncResult = CharacterService::syncMainCharacter($user);
+            // 任務Service
+            $taskService = new TaskService;
+            // 本次登入是否有完成任務
+            $completedTask = $taskService->getCompletedTasks($user->uid);
+            $formattedTaskResult = $taskService->formatCompletedTasks($completedTask);
 
             return response()->json([
                 'data' => [
@@ -193,6 +199,7 @@ class PatrolController extends Controller
                         'has_level_up' => $syncResult['success'] ? 1 : 0,
                         'level_reward' => $syncResult['reward'] ?? [],
                     ],
+                    'finishedTask' => $formattedTaskResult,
                 ],
             ], 200);
         });
